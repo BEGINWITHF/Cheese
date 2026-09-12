@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "player-pose",
+  "version": "${version}",
+  "name": "Player Pose",
+  "description": "Pose your character with Blender-like bone controls - works with any player skin",
+  "authors": [],
+  "contact": {},
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["com.example.playerpose.PlayerPoseClient"]
+  },
+  "mixins": [
+    "player-pose.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "minecraft": "~26.2",
+    "java": ">=25",
+    "fabric-api": "*"
+  }
+}

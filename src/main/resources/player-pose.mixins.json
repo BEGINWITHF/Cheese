@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "package": "com.example.playerpose.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "PoseModelMixin",
+    "PoseCapeMixin"
+  ],
+  "injectors": {
+    "default": {
+      "onNotFound": "FAIL"
+    }
+  }
+}

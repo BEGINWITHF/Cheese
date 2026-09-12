@@ -1,0 +1,20 @@
+# Gradle / build output
+.gradle/
+build/
+bin/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# Fabric / Minecraft runtime
+run/
+logs/
+crash-reports/
+
+# OS noise
+.DS_Store
+Thumbs.db
