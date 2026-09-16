@@ -60,23 +60,30 @@ public class PoseEditorScreen extends Screen {
     private static final String CURSOR = "cursor";
 
     private static final List<String> ROWS = List.of(
-        "body", "head", "leftArm", "rightArm", "leftLeg", "rightLeg", "cape", CURSOR
+        "body", "head",
+        "leftArm", "leftForearm", "rightArm", "rightForearm",
+        "leftLeg", "leftShin", "rightLeg", "rightShin",
+        "cape", CURSOR
     );
 
     /**
      * Canonical pivots (model units, 16 per block, +Y down), used only before the
-     * live values have been published by the mixins. The cape pivot comes from
-     * PlayerCapeModel.createCapeLayer.
+     * live values have been published by the mixins. The second segments sit 6 units
+     * down their limb; the cape pivot comes from PlayerCapeModel.
      */
     private static final float[][] FALLBACK_PIVOTS = {
-        {0.0F, 0.0F, 0.0F},   // body
-        {0.0F, 0.0F, 0.0F},   // head
-        {5.0F, 2.0F, 0.0F},   // leftArm
-        {-5.0F, 2.0F, 0.0F},  // rightArm
-        {1.9F, 12.0F, 0.0F},  // leftLeg
-        {-1.9F, 12.0F, 0.0F}, // rightLeg
-        {0.0F, 0.0F, 2.0F},   // cape
-        {0.0F, 0.0F, 0.0F}    // cursor (anchored on the model origin)
+        {0.0F, 0.0F, 0.0F},    // body
+        {0.0F, 0.0F, 0.0F},    // head
+        {5.0F, 2.0F, 0.0F},    // leftArm
+        {5.0F, 6.0F, 0.0F},    // leftForearm (elbow, arm seam at +4)
+        {-5.0F, 2.0F, 0.0F},   // rightArm
+        {-5.0F, 6.0F, 0.0F},   // rightForearm (elbow)
+        {1.9F, 12.0F, 0.0F},   // leftLeg
+        {1.9F, 18.0F, 0.0F},   // leftShin (knee)
+        {-1.9F, 12.0F, 0.0F},  // rightLeg
+        {-1.9F, 18.0F, 0.0F},  // rightShin (knee)
+        {0.0F, 0.0F, 2.0F},    // cape
+        {0.0F, 0.0F, 0.0F}     // cursor (anchored on the model origin)
     };
 
     private static final int BONE_Y0 = TITLE_H + 4;
@@ -1041,7 +1048,7 @@ public class PoseEditorScreen extends Screen {
                 setMode(true);
                 return true;
             }
-            case 49, 50, 51, 52, 53, 54, 55, 56 -> { // 1..8 select a left-bar row
+            case 49, 50, 51, 52, 53, 54, 55, 56, 57 -> { // 1..9 select a left-bar row
                 int idx = event.key() - 49;
                 if (idx < ROWS.size() && !ROWS.get(idx).equals(selected)) {
                     selectRow(ROWS.get(idx));

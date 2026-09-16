@@ -1,9 +1,7 @@
 {
   "key.category.player-pose.main": "Player Pose",
   "key.playerpose.toggle": "Open Pose Editor",
-
   "screen.playerpose.editor": "Pose Editor",
-
   "playerpose.poseNameHint": "Pose name",
   "playerpose.newBtn": "New",
   "playerpose.saveBtn": "Save",
@@ -14,27 +12,27 @@
   "playerpose.applyBtn": "Apply",
   "playerpose.modeRotate": "Rotate",
   "playerpose.modeMove": "Move",
-
   "playerpose.bonesLabel": "Edit",
   "playerpose.bone.body": "Body",
   "playerpose.bone.head": "Head",
   "playerpose.bone.leftArm": "Left Arm",
+  "playerpose.bone.leftForearm": "Left Forearm",
   "playerpose.bone.rightArm": "Right Arm",
+  "playerpose.bone.rightForearm": "Right Forearm",
   "playerpose.bone.leftLeg": "Left Leg",
+  "playerpose.bone.leftShin": "Left Shin",
   "playerpose.bone.rightLeg": "Right Leg",
+  "playerpose.bone.rightShin": "Right Shin",
   "playerpose.bone.cape": "Cape",
   "playerpose.cursorRow": "Cursor (pivot)",
   "playerpose.unsavedPose": "Unsaved pose - name it, then Save",
   "playerpose.savedPosesLabel": "Saved poses",
   "playerpose.savedPosesLabelUnloaded": "Saved poses (unloaded)",
-
-  "playerpose.hint": "Save, then ESC - closing applies the pose - middle drag orbits - 1-8 picks a row",
+  "playerpose.hint": "Save, then ESC - closing applies the pose - middle drag orbits - 1-9 picks a row",
   "playerpose.viewportHint": "Drag a ring to rotate or move - middle/left drag empty space to orbit - scroll to zoom",
-
   "playerpose.overlay.applied": "Pose applied: %s",
   "playerpose.overlay.none": "No pose saved for %s yet - hit Save first",
   "playerpose.overlay.unloaded": "Poses unloaded - normal pose",
-
   "playerpose.status.saved": "Saved: %s",
   "playerpose.status.renamed": "Renamed: %s -> %s",
   "playerpose.status.using": "Using: %s",

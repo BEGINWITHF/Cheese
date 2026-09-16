@@ -2,6 +2,7 @@ package com.example.playerpose.mixin;
 
 import com.example.playerpose.PlayerPoseClient;
 import com.example.playerpose.pose.BoneMath;
+import com.example.playerpose.pose.LayerBends;
 import com.example.playerpose.pose.Pose;
 import com.example.playerpose.pose.PoseBone;
 import net.minecraft.client.Minecraft;
@@ -48,7 +49,14 @@ public abstract class PoseModelMixin {
         {5.0F, 2.0F, 0.0F},   // leftArm
         {-5.0F, 2.0F, 0.0F},  // rightArm
         {1.9F, 12.0F, 0.0F},  // leftLeg
-        {-1.9F, 12.0F, 0.0F}  // rightLeg
+        {-1.9F, 12.0F, 0.0F}, // rightLeg
+        // Second segments: their position is relative to the limb they hang from, so the
+        // rest offset is the limb's geometric seam - +4 for arms (cube spans -2..10),
+        // +6 for legs (cube spans 0..12). See PoseLimbSplitMixin.
+        {0.0F, 4.0F, 0.0F},   // leftForearm
+        {0.0F, 4.0F, 0.0F},   // rightForearm
+        {0.0F, 6.0F, 0.0F},   // leftShin
+        {0.0F, 6.0F, 0.0F}    // rightShin
     };
 
     @Shadow public ModelPart head;
@@ -70,6 +78,8 @@ public abstract class PoseModelMixin {
         // Published before anything is applied, so the editor reads the animated
         // rest pivots rather than positions this mixin moved.
         publishPivots();
+        // Rebuilt every frame: a mesh with no bend registered stays untouched.
+        LayerBends.clear();
 
         Pose pose = PlayerPoseClient.resolvePoseForLocalPlayer(mc);
         if (pose == null || pose.getBones() == null || pose.getBones().isEmpty()) return;
@@ -96,6 +106,10 @@ public abstract class PoseModelMixin {
                 float[] rest = REST[index];
                 part.setPos((float) (rest[0] + dx), (float) (rest[1] + dy), (float) (rest[2] + dz));
             }
+
+            // Second layers drawn by other mods (3D Skin Layers) attach to this limb, not
+            // to the child part, so they need the bend handed over separately.
+            registerLayerBend(bone.bone, rx, ry, rz, dx, dy, dz);
         }
     }
 
@@ -108,6 +122,10 @@ public abstract class PoseModelMixin {
             case "rightArm" -> 3;
             case "leftLeg" -> 4;
             case "rightLeg" -> 5;
+            case "leftForearm" -> 6;
+            case "rightForearm" -> 7;
+            case "leftShin" -> 8;
+            case "rightShin" -> 9;
             default -> -1;
         };
     }
@@ -121,8 +139,53 @@ public abstract class PoseModelMixin {
             case "rightArm" -> rightArm;
             case "leftLeg" -> leftLeg;
             case "rightLeg" -> rightLeg;
+            // Second segments, added to the mesh by PoseLimbSplitMixin.
+            case "leftForearm" -> child(leftArm, "left_forearm");
+            case "rightForearm" -> child(rightArm, "right_forearm");
+            case "leftShin" -> child(leftLeg, "left_shin");
+            case "rightShin" -> child(rightLeg, "right_shin");
             default -> null;
         };
+    }
+
+    private static ModelPart child(ModelPart parent, String name) {
+        if (parent == null || !parent.hasChild(name)) return null;
+        return parent.getChild(name);
+    }
+
+    /**
+     * Hand over the bend for a second segment, so mods that draw their own second layer
+     * (3D Skin Layers) can bend it too. They attach their mesh to the limb or to its
+     * sleeve/pants overlay, so both parts get registered.
+     */
+    private void registerLayerBend(String bone, float rx, float ry, float rz,
+                                   double dx, double dy, double dz) {
+        String parentName = switch (bone) {
+            case "leftForearm" -> "leftArm";
+            case "rightForearm" -> "rightArm";
+            case "leftShin" -> "leftLeg";
+            case "rightShin" -> "rightLeg";
+            default -> null;
+        };
+        if (parentName == null) return;
+        ModelPart parent = findPart(parentName);
+        if (parent == null) return;
+
+        int index = restIndex(bone);
+        double seam = index < 0 ? 0.0 : REST[index][1];
+        LayerBends.Bend bend = new LayerBends.Bend(seam, rx, ry, rz, dx, dy, dz);
+
+        LayerBends.put(parent, bend);
+        String overlay = switch (bone) {
+            case "leftForearm" -> "left_sleeve";
+            case "rightForearm" -> "right_sleeve";
+            case "leftShin" -> "left_pants";
+            case "rightShin" -> "right_pants";
+            default -> null;
+        };
+        if (overlay != null && parent.hasChild(overlay)) {
+            LayerBends.put(parent.getChild(overlay), bend);
+        }
     }
 
     /**
@@ -137,5 +200,20 @@ public abstract class PoseModelMixin {
         PlayerPoseClient.publishJointPivot("rightArm", rightArm.x, rightArm.y, rightArm.z);
         PlayerPoseClient.publishJointPivot("leftLeg", leftLeg.x, leftLeg.y, leftLeg.z);
         PlayerPoseClient.publishJointPivot("rightLeg", rightLeg.x, rightLeg.y, rightLeg.z);
+        // Second segments: their pivot is expressed in the limb's own space, so compose
+        // the limb's pivot with its current rotation applied to the child offset.
+        publishChildPivot("leftForearm", leftArm, "left_forearm");
+        publishChildPivot("rightForearm", rightArm, "right_forearm");
+        publishChildPivot("leftShin", leftLeg, "left_shin");
+        publishChildPivot("rightShin", rightLeg, "right_shin");
+    }
+
+    /** Model-space pivot of a child part, for the editor's gizmo anchor. */
+    private static void publishChildPivot(String bone, ModelPart parent, String childName) {
+        ModelPart part = child(parent, childName);
+        if (part == null) return;
+        double[] off = BoneMath.rotateZYX(part.x, part.y, part.z, parent.xRot, parent.yRot, parent.zRot);
+        PlayerPoseClient.publishJointPivot(bone,
+            (float) (parent.x + off[0]), (float) (parent.y + off[1]), (float) (parent.z + off[2]));
     }
 }

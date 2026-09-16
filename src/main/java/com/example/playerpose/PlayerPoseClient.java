@@ -3,9 +3,11 @@ package com.example.playerpose;
 import com.example.playerpose.input.PoseKeybinds;
 import com.example.playerpose.pose.Pose;
 import com.example.playerpose.pose.PoseManager;
+import com.example.playerpose.compat.SkinLayersCompat;
 import com.example.playerpose.pose.PoseLog;
 import com.example.playerpose.screen.PoseEditorScreen;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import org.slf4j.Logger;
@@ -58,6 +60,14 @@ public class PlayerPoseClient implements ClientModInitializer {
         PoseLog.dumpPoses(poseManager, "startup");
 
         PoseKeybinds.register();
+
+        // Optional: let 3D Skin Layers bend its own second-layer meshes with our
+        // elbow/knee, since it draws them itself instead of using the vanilla parts.
+        if (FabricLoader.getInstance().isModLoaded("skinlayers3d")) {
+            SkinLayersCompat.install();
+        } else {
+            PoseLog.info("compat: 3D Skin Layers not present");
+        }
 
         LOGGER.info("Player Pose mod initialized");
     }
