@@ -7,7 +7,7 @@ version = project.findProperty('mod_version') ?: '2.0.0'
 group = project.findProperty('maven_group') ?: 'com.example'
 
 base {
-    archivesName = 'player-pose'
+    archivesName = project.findProperty('archives_base_name') ?: 'cheese'
 }
 
 repositories {

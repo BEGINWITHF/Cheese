@@ -21,7 +21,7 @@ nothing is sent to the server and other players see you normally.
 ## Install
 
 1. Install Fabric Loader for 26.2 and put [Fabric API](https://modrinth.com/mod/fabric-api) in `mods/`.
-2. Drop `player-pose-<version>.jar` into `mods/`.
+2. Drop `cheese-<version>.jar` into `mods/`.
 3. Start the game. The mod only affects the client, so it works in singleplayer and on
    any server you can already join.
 
@@ -125,7 +125,7 @@ useful when a pose does not appear to be the one you loaded:
 ## Building from source
 
 ```bash
-./gradlew build          # -> build/libs/player-pose-<version>.jar
+./gradlew build          # -> build/libs/cheese-<version>.jar
 ```
 
 Java 25 is required. The first build resolves Minecraft, Mappings and Fabric Loom from
