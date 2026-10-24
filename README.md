@@ -32,7 +32,8 @@ nothing is sent to the server and other players see you normally.
 2. Open the **Poses** tab and click a pose (amber frame), or press **New** to start a
    fresh one. Clicking only selects it for editing.
 3. Click a part on the little mannequin in the left panel, then drag a ring to rotate
-   (or move) it. The cape is the small button under the figure.
+   it (or switch to Move and drag an axis line). The cape is the small button under
+   the figure.
 4. Type a name and press **Save**, then **Load** to put the pose on your character.
 5. Close the editor — **`ESC`**. The pose marked with the blue shading stays applied.
    Saving under a new name renames the pose; the old file is removed rather than
@@ -54,7 +55,7 @@ were not saved are not applied on close; the last saved/loaded version is.
 | click a pose | select it for editing (amber frame), without unloading the blue one |
 | **Load** | bind the framed pose to you and make it the active pose |
 | `R` / `G` | **Rotate** / **Move** mode (also the two buttons) |
-| drag a coloured ring | rotate, or translate along that axis |
+| drag a coloured ring / axis line | rotate (ring) or translate (line) along that axis |
 | drag empty viewport space, or middle-drag | orbit the camera |
 | scroll | zoom the viewport, or scroll the saved-pose list |
 | `Ctrl+Z` / `Ctrl+Y` | undo / redo (one step per drag) |

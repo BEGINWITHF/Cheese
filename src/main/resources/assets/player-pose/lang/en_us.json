@@ -33,7 +33,7 @@
   "playerpose.savedPosesLabel": "Saved poses",
   "playerpose.savedPosesLabelUnloaded": "Saved poses (unloaded)",
   "playerpose.hint": "Click a pose to edit it - Load applies the framed pose - ESC closes",
-  "playerpose.viewportHint": "Drag a ring to rotate or move - middle/left drag empty space to orbit - scroll to zoom",
+  "playerpose.viewportHint": "Ring = rotate - line = move - scroll to zoom",
   "playerpose.overlay.applied": "Pose applied: %s",
   "playerpose.overlay.none": "No pose saved for %s yet - hit Save first",
   "playerpose.overlay.unloaded": "Poses unloaded - normal pose",

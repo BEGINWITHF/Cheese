@@ -3,16 +3,18 @@ package com.example.playerpose.screen;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 
 /**
- * Blender-style rotate gizmo.
+ * Blender-style transform gizmo.
  *
- * Draws three axis rings (X red, Y green, Z blue) around a joint, an outer white
- * ring that rotates about whichever axis faces the camera, plus the usual axis
- * arms, handles and centre puck. Orientation is a simple orthographic camera
- * defined by a yaw/pitch pair so the rings look like they sit in 3D space.
+ * Rotate mode draws three axis rings (X red, Y green, Z blue) around a joint.
+ * Move mode draws three straight axis lines instead, so the two modes are visually
+ * distinct and each only offers the handle it can actually use.
  *
- * Interaction is drag-based: pressing on a ring records the angle of the cursor
- * around the gizmo centre, and dragging sweeps that angle; the swept delta is the
- * rotation applied to the bone.
+ * Orientation is a simple orthographic camera defined by a yaw/pitch pair so the
+ * rings look like they sit in 3D space.
+ *
+ * Interaction is drag-based: pressing a ring records the cursor angle around the
+ * gizmo centre (rotation), pressing an axis line records the cursor position along
+ * that screen-space axis (translation).
  */
 final class PoseGizmo {
 
@@ -41,9 +43,11 @@ final class PoseGizmo {
     private final double viewYaw;
     private final double pitch; // radians
     private final int hoverAxis, activeAxis;
+    private final boolean moveMode;
 
     PoseGizmo(GuiGraphicsExtractor gfx, double centerX, double centerY, double radius,
-              double viewYawRad, double pitchRad, int hoverAxis, int activeAxis) {
+              double viewYawRad, double pitchRad, int hoverAxis, int activeAxis,
+              boolean moveMode) {
         this.gfx = gfx;
         this.centerX = centerX;
         this.centerY = centerY;
@@ -52,6 +56,7 @@ final class PoseGizmo {
         this.pitch = pitchRad;
         this.hoverAxis = hoverAxis;
         this.activeAxis = activeAxis;
+        this.moveMode = moveMode;
     }
 
     // ---- projection ------------------------------------------------------
@@ -113,6 +118,10 @@ final class PoseGizmo {
     // ---- hit testing -----------------------------------------------------
 
     int hitTest(double mouseX, double mouseY) {
+        return moveMode ? hitTestAxes(mouseX, mouseY) : hitTestRings(mouseX, mouseY);
+    }
+
+    private int hitTestRings(double mouseX, double mouseY) {
         int best = NONE;
         double bestDist = HIT_PX;
         for (int a = 0; a < 3; a++) {
@@ -128,6 +137,48 @@ final class PoseGizmo {
         return best;
     }
 
+    private int hitTestAxes(double mouseX, double mouseY) {
+        int best = NONE;
+        double bestDist = HIT_PX;
+        for (int a = 0; a < 3; a++) {
+            double[] unit = axisUnit(a);
+            double dx = unit[0] - centerX;
+            double dy = unit[1] - centerY;
+            double n = Math.hypot(dx, dy);
+            if (n < 1.0E-4) continue; // axis points at the camera
+            double tipX = centerX + dx / n * axisLength();
+            double tipY = centerY + dy / n * axisLength();
+            double dd = segmentDistance(mouseX, mouseY, centerX, centerY, tipX, tipY);
+            if (dd < bestDist) {
+                bestDist = dd;
+                best = a;
+            }
+        }
+        return best;
+    }
+
+    private static double segmentDistance(double px, double py,
+                                          double x1, double y1, double x2, double y2) {
+        double dx = x2 - x1, dy = y2 - y1;
+        double len2 = dx * dx + dy * dy;
+        if (len2 < 1.0E-9) return Math.hypot(px - x1, py - y1);
+        double t = ((px - x1) * dx + (py - y1) * dy) / len2;
+        t = Math.max(0.0, Math.min(1.0, t));
+        return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+    }
+
+    private double axisLength() {
+        return radius * 1.55;
+    }
+
+    private double[] axisUnit(int axis) {
+        return switch (axis) {
+            case AXIS_X -> project(1, 0, 0);
+            case AXIS_Y -> project(0, 1, 0);
+            default -> project(0, 0, 1);
+        };
+    }
+
     static double angleAt(double mouseX, double mouseY, double centerX, double centerY) {
         return Math.atan2(mouseY - centerY, mouseX - centerX);
     }
@@ -141,11 +192,7 @@ final class PoseGizmo {
      * at the camera and cannot be dragged meaningfully.
      */
     double[] axisScreenDir(int axis) {
-        double[] p = switch (axis) {
-            case AXIS_X -> project(1, 0, 0);
-            case AXIS_Y -> project(0, 1, 0);
-            default -> project(0, 0, 1);
-        };
+        double[] p = axisUnit(axis);
         double dx = p[0] - centerX;
         double dy = p[1] - centerY;
         double n = Math.hypot(dx, dy);
@@ -163,10 +210,13 @@ final class PoseGizmo {
     // ---- drawing ---------------------------------------------------------
 
     void draw() {
-        // No marker at the pivot itself: the rings' centre already shows where it is, and
-        // a crosshair there just adds clutter over the model.
-        drawAxes();
-        for (int a = 0; a < 3; a++) drawRing(a);
+        // No marker at the pivot itself: the handles' centre already shows where it is,
+        // and a crosshair there just adds clutter over the model.
+        if (moveMode) {
+            for (int a = 0; a < 3; a++) drawAxis(a);
+        } else {
+            for (int a = 0; a < 3; a++) drawRing(a);
+        }
     }
 
     private void drawRing(int axis) {
@@ -185,22 +235,16 @@ final class PoseGizmo {
         }
     }
 
-    private void drawAxes() {
-        double len = radius * 1.6;
-        for (int a = 0; a < 3; a++) {
-            double[] unit = switch (a) {
-                case AXIS_X -> project(1, 0, 0);
-                case AXIS_Y -> project(0, 1, 0);
-                default -> project(0, 0, 1);
-            };
-            double dx = unit[0] - centerX;
-            double dy = unit[1] - centerY;
-            double n = Math.hypot(dx, dy);
-            if (n < 1.0E-4) continue;
-            double tipX = centerX + dx / n * len;
-            double tipY = centerY + dy / n * len;
-            stroke(centerX, centerY, tipX, tipY, 1, BRIGHT[a]);
-        }
+    private void drawAxis(int axis) {
+        double[] unit = axisUnit(axis);
+        double dx = unit[0] - centerX;
+        double dy = unit[1] - centerY;
+        double n = Math.hypot(dx, dy);
+        if (n < 1.0E-4) return;
+        boolean hot = axis == hoverAxis || axis == activeAxis;
+        int thickness = hot ? 3 : 2;
+        stroke(centerX, centerY, centerX + dx / n * axisLength(),
+            centerY + dy / n * axisLength(), thickness, BRIGHT[axis]);
     }
 
     // ---- primitives ------------------------------------------------------

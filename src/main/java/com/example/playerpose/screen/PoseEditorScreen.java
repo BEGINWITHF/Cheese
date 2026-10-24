@@ -726,7 +726,7 @@ public class PoseEditorScreen extends Screen {
         double[] c = gizmoCenter();
         return new PoseGizmo(gfx, c[0], c[1], gizmoRadius(),
             Math.toRadians(180.0 + camYaw), Math.toRadians(camPitch),
-            hoverAxis, activeAxis);
+            hoverAxis, activeAxis, moveMode);
     }
 
     // ---- rendering -------------------------------------------------------
