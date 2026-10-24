@@ -1,8 +1,10 @@
-# Player Pose
+# Cheese
 
-A client-side Fabric mod for **Minecraft 26.2** that lets you pose your character with
-Blender-style bone controls: pick a joint, drag a rotate gizmo over your own rendered
-model, and save the result as a named pose.
+By **Tagin_T**. A minecraft mod that lets you pose yourself in game.
+
+A client-side Fabric mod for **Minecraft 26.2** with Blender-style bone controls: pick a
+joint, drag a rotate gizmo over your own rendered model, and save the result as a named
+pose.
 
 Everything is local — poses are applied to *your* view of *your* player model, so
 nothing is sent to the server and other players see you normally.

@@ -1,4 +1,4 @@
-# player-pose — status / TODO
+# Cheese — status / TODO
 
 Fabric client mod for Minecraft 26.2. Pick a bone, rotate or translate it on the rendered
 player model, save the result as a named pose; mixins apply it to the local player.
