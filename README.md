@@ -27,38 +27,54 @@ nothing is sent to the server and other players see you normally.
 
 1. Press **`/`** in game to open the pose editor. (Rebindable in *Options → Controls →
    Player Pose*; the default clashes with vanilla's *Open Command*, see [Notes](#notes).)
-2. Pick a pose in **Saved poses**, or press **New** to start a fresh one.
-3. Click a part in the left list, drag a ring to rotate (or move) it.
-4. Type a name and press **Save**.
-5. Close the editor — **`ESC`** applies the pose to your character. Saving under a new
-   name renames the pose; the old file is removed rather than duplicated.
+2. Open the **Poses** tab and click a pose (amber frame), or press **New** to start a
+   fresh one. Clicking only selects it for editing.
+3. Click a part on the little mannequin in the left panel, then drag a ring to rotate
+   (or move) it. The cape is the small button under the figure.
+4. Type a name and press **Save**, then **Load** to put the pose on your character.
+5. Close the editor — **`ESC`**. The pose marked with the blue shading stays applied.
+   Saving under a new name renames the pose; the old file is removed rather than
+   duplicated.
+
+Selecting another pose does not unload the one in effect: the loaded pose keeps its
+blue shading, the newly clicked one gets an amber frame. **Load** applies the framed
+pose and moves the blue shading to it; **Unload** removes the pose entirely. Edits that
+were not saved are not applied on close; the last saved/loaded version is.
 
 ## Controls
 
 | Input | Action |
 |---|---|
 | `/` | open / close the editor (rebindable) |
-| click a row, or `1`–`8` | choose what you are editing |
+| `Bones` / `Poses` tabs | switch the left panel between the mannequin and saved poses |
+| click a part on the mannequin | choose what you are editing (head, torso, arms, forearms, legs, shins, cape) |
+| `1`–`9` | same as clicking the mannequin (rows in the classic order; cape is click-only) |
+| click a pose | select it for editing (amber frame), without unloading the blue one |
+| **Load** | bind the framed pose to you and make it the active pose |
 | `R` / `G` | **Rotate** / **Move** mode (also the two buttons) |
 | drag a coloured ring | rotate, or translate along that axis |
 | drag empty viewport space, or middle-drag | orbit the camera |
 | scroll | zoom the viewport, or scroll the saved-pose list |
 | `Ctrl+Z` / `Ctrl+Y` | undo / redo (one step per drag) |
-| `ESC` | close and apply |
+| `ESC` | close and apply the saved pose |
 
 Red is **X**, green is **Y**, blue is **Z**. Rotation and translation range are clamped
 to ±180° and ±2 blocks per axis.
 
 ## What you can pose
 
-`Body`, `Head`, `Left Arm`, `Right Arm`, `Left Leg`, `Right Leg`, `Cape`, and the
-**Cursor (pivot)**.
+`Body`, `Head`, left and right **upper arm** / **forearm**, left and right **upper leg**
+/ **shin**, and the **Cape**.
 
-- The **cursor** is the point rotations happen around. Leave it at 0 and a part rotates
-  about its own joint; move it and everything you rotate pivots about that point. It is
-  saved with the pose.
-- The **cape** is only visible if you are actually wearing a cape or an elytra — it is a
-  separate model drawn by the game's cape layer.
+- Picking a part picks its joint. Rotations always hinge where that part is attached
+  (for a forearm or shin, the elbow/knee centre the limb builder marks), so there is no
+  separate cursor/pivot to place. Each limb is sliced into small segments and smoothly
+  skinned around the joint, so a bent arm/leg curves continuously instead of breaking
+  apart.
+- The **cape** is only drawn when you are actually wearing a cape; an elytra uses a
+  different model and is not posed by this mod.
+- Armor is rendered with separate (single-piece) arm and leg models, so it does not
+  follow a bent elbow or knee. Poses with bent limbs look best without armor.
 
 ## How poses are stored
 
@@ -70,17 +86,22 @@ Plain JSON in `config/player-pose/`, one file per pose:
   "skin": "Tagin_T",
   "bones": [
     { "bone": "leftArm", "x": 1.2, "y": 0.0, "z": 0.0, "tx": 0.0, "ty": 0.0, "tz": 0.0 }
-  ],
-  "cursorX": 0.0, "cursorY": 0.0, "cursorZ": 0.0
+  ]
 }
 ```
 
 - `x/y/z` are rotations in radians, `tx/ty/tz` are translations in model units
   (16 units = 1 block). The mixin feeds them straight into Minecraft's model parts.
-- `skin` binds the pose to a player name. **Only one pose is active at a time**:
-  loading or saving one unbinds every other pose, so closing the editor can only ever
-  apply the pose you were working on.
+- The cape's rest rotation is 180° around Y; a cape pose's `y` is added to that, so
+  `0` keeps the cape hanging normally.
+- `skin` binds the pose to a player name. **Only one pose is loaded at a time**:
+  **Load** (or the first save, when nothing is loaded yet) binds it and unbinds every
+  other pose, so closing the editor can only ever apply the loaded pose. Selecting and
+  saving a different pose leaves the loaded one in effect.
 - Files are read at startup and written on save, so poses survive restarts.
+- Plain ASCII names keep their name as the file name; other names get a readable stem
+  plus a short hash (for example `挥手~bc5f31b3.json`), so two non-ASCII names can
+  never overwrite each other. The `name` inside the file is unchanged.
 
 ## Diagnostics
 
@@ -117,15 +138,16 @@ flowchart LR
     M -->|one active pose| R[PlayerPoseClient]
     R --> A[PoseModelMixin]
     R --> B[PoseCapeMixin]
-    A -->|rotation + pivot offset| H[HumanoidModel bones]
+    A -->|rotation + translate| H[HumanoidModel bones]
     B -->|cape part| C[PlayerCapeModel]
 ```
 
 The editor renders your real player model through the same GUI entity path the vanilla
 inventory screen uses, and the gizmo is anchored on the actual `ModelPart` pivots, which
-the mixins publish as the model renders. The mixins apply rotations plus a
-`cursor - R * cursor` offset, which is what turns "rotate about the joint" into "rotate
-about the cursor".
+the mixins publish as the model renders. The mixins apply the bone rotation plus the
+pose's `tx/ty/tz` translate offset. Each limb is built from small texture slices and
+the render mixin bends their vertices around the elbow/knee with a smooth weight, so it
+curves like a skinned mesh instead of breaking in two.
 
 ## Notes
 
@@ -136,6 +158,9 @@ about the cursor".
   your hitbox, and is invisible to other players.
 - Poses are matched by player **name**, so a pose saved for one name does not apply to
   another.
+- Clicking a pose in the **Poses** tab is a save, not just a preview: it binds that pose
+  to your name and unbinds the previous one.
+- Armor and elytra are separate models; see [What you can pose](#what-you-can-pose).
 - Unknown terrain: the gizmo's vertical centring constant has been reasoned out of the
   render pipeline but not verified by eye in game.
 

@@ -10,7 +10,6 @@ import net.minecraft.client.model.player.PlayerCapeModel;
 import net.minecraft.client.renderer.entity.state.AvatarRenderState;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
-import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -23,14 +22,16 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * setupAnim the vanilla sway (capeFlap / capeLean / capeLean2) has already been
  * applied to the cape part as a quaternion, so a "cape" entry in the pose simply
  * replaces it, exactly like the bones in PoseModelMixin.
+ *
+ * The cape's baked rest rotation is 180 degrees around Y (that is what makes it hang
+ * behind the player), so a pose rotation has to be added to that rest rotation.
+ * Calling setRotation(x, y, z) with the pose values alone would flip the cape through
+ * the body.
  */
 @Mixin(PlayerCapeModel.class)
 public abstract class PoseCapeMixin {
 
     @Shadow private ModelPart cape;
-
-    /** Cape rest pivot, captured before this mod ever moves the part. */
-    @Unique private static float[] playerpose$capeRest;
 
     @Inject(
         method = "setupAnim(Lnet/minecraft/client/renderer/entity/state/AvatarRenderState;)V",
@@ -41,29 +42,39 @@ public abstract class PoseCapeMixin {
         if (mc.player == null) return;
         if (state.id != mc.player.getId()) return; // AvatarRenderState#id is the entity id
 
-        if (playerpose$capeRest == null) {
-            playerpose$capeRest = new float[] {cape.x, cape.y, cape.z};
-        }
-        // Same pivot the editor anchors its gizmo on.
-        PlayerPoseClient.publishJointPivot("cape", playerpose$capeRest[0], playerpose$capeRest[1], playerpose$capeRest[2]);
-
         Pose pose = PlayerPoseClient.resolvePoseForLocalPlayer(mc);
-        if (pose == null || pose.getBones() == null || pose.getBones().isEmpty()) return;
+        if (pose != null && pose.getBones() != null) {
+            for (PoseBone bone : pose.getBones()) {
+                if (bone == null || !"cape".equals(bone.bone)) continue;
+                // A zeroed cape entry means "vanilla": keep the model's sway.
+                if (bone.isRest()) continue;
 
-        for (PoseBone bone : pose.getBones()) {
-            if (bone == null || !"cape".equals(bone.bone)) continue;
+                // The rest pose carries the 180-degree Y yaw that faces the cape
+                // backwards; a pose rotation is added to it, never used alone.
+                var rest = cape.getInitialPose();
+                float rx = rest == null ? 0.0F : rest.xRot();
+                float ry = rest == null ? 0.0F : rest.yRot();
+                float rz = rest == null ? 0.0F : rest.zRot();
+                cape.setRotation(rx + (float) bone.x, ry + (float) bone.y, rz + (float) bone.z);
 
-            cape.setRotation((float) bone.x, (float) bone.y, (float) bone.z);
-
-            double[] off = BoneMath.cursorOffset(pose, bone);
-            double dx = off[0] + bone.tx;
-            double dy = off[1] + bone.ty;
-            double dz = off[2] + bone.tz;
-            if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) > 1.0E-4) {
-                cape.setPos((float) (playerpose$capeRest[0] + dx),
-                            (float) (playerpose$capeRest[1] + dy),
-                            (float) (playerpose$capeRest[2] + dz));
+                double dx = bone.tx;
+                double dy = bone.ty;
+                double dz = bone.tz;
+                if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) > 1.0E-4) {
+                    float baseX = rest == null ? 0.0F : rest.x();
+                    float baseY = rest == null ? 0.0F : rest.y();
+                    float baseZ = rest == null ? 0.0F : rest.z();
+                    cape.setPos((float) (baseX + dx), (float) (baseY + dy), (float) (baseZ + dz));
+                }
             }
         }
+
+        // Published after the pose is on, so the editor gets the cape's real position
+        // (including its translate). The cape hangs off the body, so compose its local
+        // pivot with the body's posed position and rotation to get model space.
+        ModelPart body = ((PlayerCapeModel) (Object) this).body;
+        double[] off = BoneMath.rotateZYX(cape.x, cape.y, cape.z, body.xRot, body.yRot, body.zRot);
+        PlayerPoseClient.publishJointPivot("cape",
+            (float) (body.x + off[0]), (float) (body.y + off[1]), (float) (body.z + off[2]));
     }
 }

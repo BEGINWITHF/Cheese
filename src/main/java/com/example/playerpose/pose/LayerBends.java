@@ -21,7 +21,8 @@ public final class LayerBends {
      * Rotate everything below {@code seamY} about the point (0, seamY, 0) by (rx,ry,rz),
      * then shift by (ox,oy,oz). Units match ModelPart cubes: 16 per block, +Y down.
      */
-    public record Bend(double seamY, double rx, double ry, double rz,
+    public record Bend(double px, double seamY, double pz,
+                       double rx, double ry, double rz,
                        double ox, double oy, double oz) {
 
         /** True when this bend would not move anything. */
@@ -31,22 +32,18 @@ public final class LayerBends {
 
         /** Apply to a single point, in place. */
         public void apply(org.joml.Vector3f p) {
-            double x = p.x;
             double y = p.y - seamY;
-            double z = p.z;
             if (y <= 0.0) return; // above the joint: the limb itself moves it
-            double[] r = BoneMath.rotateZYX(x, y, z, rx, ry, rz);
-            p.set((float) (r[0] + ox), (float) (r[1] + seamY + oy), (float) (r[2] + oz));
+            double[] r = BoneMath.rotateZYX(p.x - px, y, p.z - pz, rx, ry, rz);
+            p.set((float) (r[0] + px + ox), (float) (r[1] + seamY + oy), (float) (r[2] + pz + oz));
         }
 
         /** Apply to a vertex (w is kept). */
         public void apply(org.joml.Vector4f v) {
-            double x = v.x;
             double y = v.y - seamY;
-            double z = v.z;
             if (y <= 0.0) return;
-            double[] r = BoneMath.rotateZYX(x, y, z, rx, ry, rz);
-            v.set((float) (r[0] + ox), (float) (r[1] + seamY + oy), (float) (r[2] + oz), v.w);
+            double[] r = BoneMath.rotateZYX(v.x - px, y, v.z - pz, rx, ry, rz);
+            v.set((float) (r[0] + px + ox), (float) (r[1] + seamY + oy), (float) (r[2] + pz + oz), v.w);
         }
     }
 

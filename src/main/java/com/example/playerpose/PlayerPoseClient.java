@@ -121,12 +121,16 @@ public class PlayerPoseClient implements ClientModInitializer {
     }
 
     public static void closePoseEditor() {
-        if (!poseEditorOpen) return;
         Minecraft mc = Minecraft.getInstance();
         if (mc.gui.screen() instanceof PoseEditorScreen) {
+            // PoseEditorScreen#removed() clears the preview and the open flag.
             mc.gui.setScreen(null);
         }
+        // Defensive, and also needed when the screen was replaced without removed()
+        // (world unload or another mod taking over the screen): a stuck flag would stop
+        // poses from applying and keep returning the stale editor preview.
         poseEditorOpen = false;
+        editorPreviewPose = null;
         PoseLog.info("editor close (key): active=%s", activePoseName == null ? "none" : "'" + activePoseName + "'");
         announceAppliedPose();
     }

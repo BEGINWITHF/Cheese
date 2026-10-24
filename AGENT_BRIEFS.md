@@ -1,3 +1,7 @@
+> **Obsolete — kept for history.** This file describes an earlier plan (sliders, F5/F7,
+> a cursor/pivot row). The current design and open work are documented in
+> `README.md` and `TODO.md`; do not use the tasks below as the current spec.
+
 # Agent Mission Briefs — player-pose mod
 
 All agents work on the same codebase: `C:\Users\begin\Desktop\Cheese`.

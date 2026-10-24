@@ -3,18 +3,16 @@ package com.example.playerpose.pose;
 import java.util.List;
 
 /**
- * A saved pose: name, optional skin filter, list of bone poses, plus the pivot
- * ("cursor") that rotations happen around.
+ * A saved pose: name, optional skin filter, list of bone poses.
  *
- * The cursor is an offset in model units from the joint of whichever bone is
- * being edited, so a cursor of (0,0,0) means "rotate around the joint itself".
+ * Rotations always happen about the joint of the bone being edited - there is no
+ * separate pivot to move; picking a part in the editor picks its joint.
  */
 public class Pose {
 
     private String name;
     private String skin;
     private List<PoseBone> bones;
-    private double cursorX, cursorY, cursorZ;
 
     public Pose() {}
 
@@ -32,18 +30,4 @@ public class Pose {
 
     public List<PoseBone> getBones() { return bones; }
     public void setBones(List<PoseBone> bones) { this.bones = bones; }
-
-    public double getCursorX() { return cursorX; }
-    public double getCursorY() { return cursorY; }
-    public double getCursorZ() { return cursorZ; }
-
-    public void setCursor(double x, double y, double z) {
-        this.cursorX = x;
-        this.cursorY = y;
-        this.cursorZ = z;
-    }
-
-    public boolean hasCursor() {
-        return cursorX != 0.0 || cursorY != 0.0 || cursorZ != 0.0;
-    }
 }

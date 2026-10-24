@@ -30,40 +30,50 @@ import java.util.Locale;
  *
  * The viewport renders the real local player model, with a rotate gizmo over it.
  *
- * Left bar selects what you are editing: the six bones, plus "cursor" - the pivot
- * that rotations happen around, editable the same way as everything else.
+ * The left bar selects what you are editing: body, head, the upper and lower arm and
+ * leg segments, and the cape. Picking a part picks its joint - there is no separate
+ * pivot to place, so rotations always hinge where the part is attached (for a forearm
+ * or shin, the hinge line the splitter built).
  *
  * Two modes, like Blender's G and R:
- *   ROTATE - drag a ring to rotate the selected bone about the cursor
- *            (cursor at 0 = rotate about the bone's own joint).
- *   MOVE   - drag a ring to translate the selected bone along that axis, or to
- *            move the cursor itself.
+ *   ROTATE - drag a ring to rotate the selected part.
+ *   MOVE   - drag a ring to translate the selected part along that axis.
  *
- * G / R switch mode, right-click in the viewport toggles, 1-7 pick a row from the
- * left bar, drag empty viewport space to orbit, scroll to zoom.
+ * G / R switch mode, 1-9 pick a row from the left bar, drag empty viewport space to
+ * orbit, middle-drag orbits, scroll to zoom. The last two rows are click-only.
  *
  * Rotations are radians in PoseBone; translations are model units (16 per block),
  * which is ModelPart's own space. The mixin applies both.
  */
 public class PoseEditorScreen extends Screen {
 
-    private static final int TITLE_H = 40;
-    private static final int STATUS_H = 18;
     private static final int LEFT_X = 8;
-    private static final int LEFT_W = 140;
-    private static final int RIGHT_X = 160;
+    private static final int LEFT_W = 160;
     private static final int ROW_H = 14;
-    private static final int CTRL_H = 20;
+    private static final int CTRL_H = 18;
+    private static final int BTN_GAP = 4;
+    private static final int BTN_W = (LEFT_W - BTN_GAP) / 2;
+    private static final int BTN_Y = 28;
+    private static final int BTN_ROW_H = 20;
+    private static final int STATUS_H = 18;
     private static final double MAX_ANGLE = Math.PI;
     private static final double MAX_TRANSLATE = 32.0; // model units, 2 blocks
 
-    private static final String CURSOR = "cursor";
+    /** Top viewport info strip (selected bone, mode, axis read-out). */
+    private static final int INFO_Y = 6;
+    private static final int INFO_H = 22;
+    private static final int TOP_H = 34;
+
+    private static final int TAB_Y = 92;
+    private static final int TAB_H = 16;
+    private static final int TAB_GAP = 3;
+    private static final int LIST_Y = 112;
 
     private static final List<String> ROWS = List.of(
         "body", "head",
         "leftArm", "leftForearm", "rightArm", "rightForearm",
         "leftLeg", "leftShin", "rightLeg", "rightShin",
-        "cape", CURSOR
+        "cape"
     );
 
     /**
@@ -75,20 +85,15 @@ public class PoseEditorScreen extends Screen {
         {0.0F, 0.0F, 0.0F},    // body
         {0.0F, 0.0F, 0.0F},    // head
         {5.0F, 2.0F, 0.0F},    // leftArm
-        {5.0F, 6.0F, 0.0F},    // leftForearm (elbow, arm seam at +4)
+        {6.0F, 6.0F, 0.0F},    // leftForearm (elbow centre)
         {-5.0F, 2.0F, 0.0F},   // rightArm
-        {-5.0F, 6.0F, 0.0F},   // rightForearm (elbow)
+        {-6.0F, 6.0F, 0.0F},   // rightForearm (elbow centre)
         {1.9F, 12.0F, 0.0F},   // leftLeg
-        {1.9F, 18.0F, 0.0F},   // leftShin (knee)
+        {1.9F, 18.0F, 0.0F},   // leftShin (knee centre)
         {-1.9F, 12.0F, 0.0F},  // rightLeg
-        {-1.9F, 18.0F, 0.0F},  // rightShin (knee)
-        {0.0F, 0.0F, 2.0F},    // cape
-        {0.0F, 0.0F, 0.0F}     // cursor (anchored on the model origin)
+        {-1.9F, 18.0F, 0.0F},  // rightShin (knee centre)
+        {0.0F, 0.0F, 2.0F}     // cape
     };
-
-    private static final int BONE_Y0 = TITLE_H + 4;
-    private static final int POSE_LABEL_Y = BONE_Y0 + ROWS.size() * ROW_H + 8;
-    private static final int POSE_Y0 = POSE_LABEL_Y + ROW_H;
 
     private final PoseManager poseManager;
     private final String skin;
@@ -99,11 +104,13 @@ public class PoseEditorScreen extends Screen {
     // Working values for the selected bone
     private double rotX, rotY, rotZ;            // radians
     private double tX, tY, tZ;                  // model units
-    // Working cursor (pivot) offset, model units
-    private double cX, cY, cZ;
 
     private EditBox nameBox;
+    private Button newBtn;
+    private Button resetBtn;
+    private Button resetAllBtn;
     private Button deleteBtn;
+    private Button loadBtn;
     private Button unloadBtn;
     private Button rotateBtn;
     private Button moveBtn;
@@ -113,8 +120,10 @@ public class PoseEditorScreen extends Screen {
     private String statusMsg = "";
     private long statusUntil;
     private List<String> savedPoseNames = new ArrayList<>();
-    /** Index of the first saved pose shown; the list is longer than the panel. */
-    private int poseScroll;
+    /** 0 = bone list, 1 = saved-pose list. */
+    private int listTab;
+    /** Scroll offset of the active tab's list, in rows. */
+    private int listScroll;
 
     // Viewport / camera
     private int vpX0, vpY0, vpX1, vpY1;
@@ -133,19 +142,26 @@ public class PoseEditorScreen extends Screen {
     private static final int MAX_UNDO = 64;
 
     /** A pose plus which row was being edited when it was taken. */
-    private record Snapshot(Pose pose, String selected) {}
+    private record Snapshot(Pose pose, String selected, String deleteOnRestore) {}
 
     private final java.util.Deque<Snapshot> undoStack = new java.util.ArrayDeque<>();
     private final java.util.Deque<Snapshot> redoStack = new java.util.ArrayDeque<>();
     /** Snapshot taken when a ring drag starts, committed only if the drag changed something. */
     private Snapshot dragSnapshot;
+    /**
+     * Pose that was just deleted, waiting for the next snapshot. That snapshot is the
+     * post-delete blank state; restoring it (redo) has to delete the pose again.
+     */
+    private String lastDeletedName;
 
     public PoseEditorScreen(PoseManager mgr, Pose existing, String skinStr) {
         super(Component.translatable("screen.playerpose.editor"));
         this.poseManager = mgr;
         this.skin = skinStr;
         if (existing != null) {
-            this.workingPose = existing;
+            // Edit a copy: the manager keeps the last saved pose until Save is pressed,
+            // so closing the editor without saving cannot silently apply draft edits.
+            this.workingPose = PoseManager.copy(existing);
         } else {
             this.workingPose = new Pose();
             this.workingPose.setName("");
@@ -156,8 +172,6 @@ public class PoseEditorScreen extends Screen {
 
     // ---- pose <-> editor state -------------------------------------------
 
-    private boolean cursorSelected() { return CURSOR.equals(selected); }
-
     private void syncFromPose() {
         PoseBone bone = findBone(selected);
         if (bone != null) {
@@ -167,20 +181,11 @@ public class PoseEditorScreen extends Screen {
             rotX = 0; rotY = 0; rotZ = 0;
             tX = 0; tY = 0; tZ = 0;
         }
-        if (workingPose != null) {
-            cX = workingPose.getCursorX();
-            cY = workingPose.getCursorY();
-            cZ = workingPose.getCursorZ();
-        }
     }
 
     /** Write the working values for the selected row back into the pose. */
     private void commit() {
         if (workingPose == null) return;
-        if (cursorSelected()) {
-            workingPose.setCursor(cX, cY, cZ);
-            return;
-        }
         if (workingPose.getBones() == null) workingPose.setBones(new ArrayList<>());
         List<PoseBone> bones = workingPose.getBones();
         for (int i = 0; i < bones.size(); i++) {
@@ -201,11 +206,10 @@ public class PoseEditorScreen extends Screen {
     }
 
     private void selectRow(String row) {
+        setTab(0);
         selected = row;
-        // The cursor is a point: only moving it makes sense.
-        moveMode = CURSOR.equals(row);
-        refreshModeButtons();
         syncFromPose();
+        ensureRowVisible(ROWS.indexOf(row));
     }
 
     private double rotationFor(int axis) {
@@ -227,13 +231,6 @@ public class PoseEditorScreen extends Screen {
     }
 
     private double translationFor(int axis) {
-        if (cursorSelected()) {
-            return switch (axis) {
-                case PoseGizmo.AXIS_X -> cX;
-                case PoseGizmo.AXIS_Y -> cY;
-                default -> cZ;
-            };
-        }
         return switch (axis) {
             case PoseGizmo.AXIS_X -> tX;
             case PoseGizmo.AXIS_Y -> tY;
@@ -243,65 +240,86 @@ public class PoseEditorScreen extends Screen {
 
     private void setTranslationFor(int axis, double units) {
         double v = Math.max(-MAX_TRANSLATE, Math.min(MAX_TRANSLATE, units));
-        if (cursorSelected()) {
-            switch (axis) {
-                case PoseGizmo.AXIS_X -> cX = v;
-                case PoseGizmo.AXIS_Y -> cY = v;
-                default -> cZ = v;
-            }
-        } else {
-            switch (axis) {
-                case PoseGizmo.AXIS_X -> tX = v;
-                case PoseGizmo.AXIS_Y -> tY = v;
-                default -> tZ = v;
-            }
+        switch (axis) {
+            case PoseGizmo.AXIS_X -> tX = v;
+            case PoseGizmo.AXIS_Y -> tY = v;
+            default -> tZ = v;
         }
         commit();
     }
 
     private void refreshPoseList() {
         savedPoseNames = poseManager == null ? new ArrayList<>() : poseManager.listNames();
-        if (poseScroll > maxPoseScroll()) poseScroll = maxPoseScroll();
-        if (poseScroll < 0) poseScroll = 0;
-        ensureWorkingPoseVisible();
-        boolean hasLoadedPose = workingPose != null && workingPose.getName() != null
+        listScroll = Math.max(0, Math.min(listScroll, maxListScroll()));
+        boolean hasWorkingPose = workingPose != null && workingPose.getName() != null
             && !workingPose.getName().isBlank();
-        if (deleteBtn != null) deleteBtn.active = hasLoadedPose;
+        if (deleteBtn != null) deleteBtn.active = hasWorkingPose;
+        if (loadBtn != null) loadBtn.active = hasWorkingPose;
     }
 
-    /** Scroll the list so the pose being edited is on screen. */
+    /** Scroll the Pose tab so the pose being edited is on screen. */
     private void ensureWorkingPoseVisible() {
+        if (listTab != 1) return;
         if (workingPose == null || workingPose.getName() == null) return;
-        int window = poseWindow();
-        if (window <= 0) return;
         int idx = savedPoseNames.indexOf(workingPose.getName());
-        if (idx < 0) return;
-        if (idx < poseScroll) {
-            poseScroll = idx;
-        } else if (idx >= poseScroll + window) {
-            poseScroll = idx - window + 1;
-        }
-        poseScroll = Math.max(0, Math.min(poseScroll, maxPoseScroll()));
+        if (idx >= 0) ensureRowVisible(idx);
     }
 
+    /** Scroll the list so a row is visible, clamped to the list bounds. */
+    private void ensureRowVisible(int row) {
+        int window = listWindow();
+        if (window <= 0) return;
+        if (row < listScroll) {
+            listScroll = row;
+        } else if (row >= listScroll + window) {
+            listScroll = row - window + 1;
+        }
+        listScroll = Math.max(0, Math.min(listScroll, maxListScroll()));
+    }
+
+    /**
+     * Pick a pose to edit. This only moves the selection (amber frame) - the pose that
+     * is currently loaded (blue shading) keeps rendering until Load or Unload is used.
+     */
     private void selectPose(String name) {
         Pose p = poseManager.get(name);
         if (p == null) return;
         beginEdit();
-        workingPose = p;
+        // The editor works on a copy, so later edits stay drafts until Save.
+        workingPose = PoseManager.copy(p);
         PlayerPoseClient.setEditorPreviewPose(workingPose);
         if (nameBox != null) nameBox.setValue(p.getName() == null ? "" : p.getName());
         selected = "body";
-        // Loading a pose makes it this player's pose and drops every other binding, so
-        // exactly one pose is ever in effect. Persisted, so it survives a restart.
-        workingPose.setSkin(skin);
-        poseManager.save(workingPose);
-        PlayerPoseClient.setActivePoseName(p.getName());
         syncFromPose();
         refreshPoseList();
-        setStatus(Component.translatable("playerpose.status.using", name));
-        PoseLog.info("list: selected '%s' (bones=%d, skin now '%s')", name,
-            workingPose.getBones() == null ? 0 : workingPose.getBones().size(), skin);
+        setTab(1);
+        ensureWorkingPoseVisible();
+        setStatus(Component.translatable("playerpose.status.selected", name));
+        String active = PlayerPoseClient.getActivePoseName();
+        PoseLog.info("list: selected '%s' (editing only; loaded=%s)", name,
+            active == null ? "none" : "'" + active + "'");
+    }
+
+    /** Bind the pose shown in the editor to this skin and make it the active one. */
+    private void loadPose() {
+        if (workingPose == null || workingPose.getName() == null || workingPose.getName().isBlank()) {
+            setStatus(Component.translatable("playerpose.status.noPoseToLoad"));
+            return;
+        }
+        lastDeletedName = null;
+        commit();
+        String name = workingPose.getName();
+        workingPose.setSkin(skin);
+        poseManager.bind(workingPose);
+        if (!PlayerPoseClient.arePosesEnabled()) {
+            PlayerPoseClient.setPosesEnabled(true);
+            refreshUnloadButton();
+        }
+        PlayerPoseClient.setActivePoseName(name);
+        PlayerPoseClient.setEditorPreviewPose(workingPose);
+        refreshPoseList();
+        setStatus(Component.translatable("playerpose.status.loaded", name));
+        PoseLog.info("load: '%s' is now active for skin '%s'", name, skin);
     }
 
     // ---- actions ---------------------------------------------------------
@@ -312,30 +330,53 @@ public class PoseEditorScreen extends Screen {
             setStatus(Component.translatable("playerpose.status.nameEmpty"));
             return;
         }
+        // A successful save is a commit point: it also drops any pending "redo this
+        // delete" state.
+        lastDeletedName = null;
         commit();
 
         // Editing the name box renames: the old file is removed rather than leaving a
         // second copy behind under the old name.
         String oldName = workingPose.getName();
         boolean renaming = oldName != null && !oldName.isBlank() && !oldName.equals(name);
+        String activeBefore = PlayerPoseClient.getActivePoseName();
+        boolean wasActive = oldName != null && oldName.equals(activeBefore);
+        // Saving is not loading: when another pose is already loaded it stays loaded.
+        // Only the first save (nothing loaded yet) also loads the result.
+        boolean nothingLoaded = activeBefore == null || poseManager.get(activeBefore) == null;
+        boolean loadNow = !wasActive && nothingLoaded && PlayerPoseClient.arePosesEnabled();
         if (renaming) {
             poseManager.delete(oldName);
         }
 
         workingPose.setName(name);
-        workingPose.setSkin(skin);
-        poseManager.save(workingPose);
-        PlayerPoseClient.setActivePoseName(name);
+        if (wasActive || loadNow) {
+            workingPose.setSkin(skin);
+            poseManager.bind(workingPose);
+            PlayerPoseClient.setActivePoseName(name);
+        } else {
+            // Keep the stored skin binding: saving a pose that is not loaded must not
+            // unbind the pose that is currently in effect.
+            poseManager.save(workingPose);
+        }
         // A save is a commit point: the file and the editor agree from here on.
         undoStack.clear();
         redoStack.clear();
         refreshPoseList();
+        setTab(1);
+        ensureWorkingPoseVisible();
         if (renaming) {
             setStatus(Component.translatable("playerpose.status.renamed", oldName, name));
             PlayerPoseClient.LOGGER.info("Pose renamed: {} -> {} for skin {}", oldName, name, skin);
-        } else {
+        } else if (loadNow) {
+            setStatus(Component.translatable("playerpose.status.savedLoaded", name));
+            PlayerPoseClient.LOGGER.info("Pose saved and loaded: {} for skin {}", name, skin);
+        } else if (wasActive) {
             setStatus(Component.translatable("playerpose.status.saved", name));
             PlayerPoseClient.LOGGER.info("Pose saved: {} for skin {}", name, skin);
+        } else {
+            setStatus(Component.translatable("playerpose.status.savedNotLoaded", name));
+            PlayerPoseClient.LOGGER.info("Pose saved (not loaded): {} for skin {}", name, skin);
         }
     }
 
@@ -345,13 +386,13 @@ public class PoseEditorScreen extends Screen {
         workingPose = new Pose();
         workingPose.setName("");
         workingPose.setSkin(skin);
-        workingPose.setCursor(0.0, 0.0, 0.0);
         workingPose.setBones(new ArrayList<>());
         if (nameBox != null) nameBox.setValue("");
         PlayerPoseClient.setEditorPreviewPose(workingPose);
-        // A brand new pose is not in effect until it has been saved.
-        PlayerPoseClient.setActivePoseName(null);
+        // A new draft does not unload whatever pose is currently in effect.
         selected = "body";
+        setTab(0);
+        listScroll = 0;
         moveMode = false;
         refreshModeButtons();
         syncFromPose();
@@ -361,14 +402,12 @@ public class PoseEditorScreen extends Screen {
     }
 
     /**
-     * Clear every bone and the cursor in the working pose, i.e. back to the rest
-     * pose. Undoable.
+     * Clear every bone in the working pose, i.e. back to the rest pose. Undoable.
      */
     private void resetAll() {
         beginEdit();
         if (workingPose != null) {
             workingPose.setBones(new ArrayList<>());
-            workingPose.setCursor(0.0, 0.0, 0.0);
         }
         syncFromPose();
         setStatus(Component.translatable("playerpose.status.resetAll"));
@@ -393,10 +432,15 @@ public class PoseEditorScreen extends Screen {
         selectRow("body");
         refreshPoseList();
         setStatus(Component.translatable("playerpose.status.deleted", name));
+        // The next snapshot describes the post-delete blank state. Redoing an undo of
+        // this delete must remove the pose again, not just show an empty editor.
+        lastDeletedName = name;
     }
 
     private Snapshot snapshot() {
-        return new Snapshot(PoseManager.copy(workingPose), selected);
+        Snapshot snap = new Snapshot(PoseManager.copy(workingPose), selected, lastDeletedName);
+        lastDeletedName = null; // the delete intent belongs to this snapshot only
+        return snap;
     }
 
     /** Remember the current state before a mutating action. */
@@ -446,12 +490,24 @@ public class PoseEditorScreen extends Screen {
             nameBox.setValue(workingPose.getName() == null ? "" : workingPose.getName());
         }
         syncFromPose();
-        // Undoing a delete should bring the pose back to the manager too.
-        String name = workingPose.getName();
-        if (name != null && !name.isBlank() && poseManager.get(name) == null) {
-            poseManager.save(workingPose);
+        // Redoing the delete of a pose: remove the copy that undoing it re-saved. Keep
+        // the name on the blank state so a later redo does the same again.
+        String deleteOnRestore = snap.deleteOnRestore();
+        boolean blank = workingPose.getName() == null || workingPose.getName().isBlank();
+        if (deleteOnRestore != null && blank) {
+            poseManager.delete(deleteOnRestore);
+            lastDeletedName = deleteOnRestore;
+        } else {
+            lastDeletedName = null;
+            // Undoing a delete restores the file exactly as the snapshot had it.
+            // Undo never changes which pose is loaded or its skin binding.
+            String name = workingPose.getName();
+            if (name != null && !name.isBlank() && poseManager.get(name) == null) {
+                poseManager.save(workingPose);
+            }
         }
         refreshPoseList();
+        ensureWorkingPoseVisible();
         refreshModeButtons();
     }
 
@@ -461,7 +517,6 @@ public class PoseEditorScreen extends Screen {
 
     /** Rotate / Move are two buttons, not one toggle - clicking either picks that mode. */
     private void setMode(boolean move) {
-        if (cursorSelected()) return; // the cursor row is always moved
         if (moveMode == move) return;
         moveMode = move;
         refreshModeButtons();
@@ -470,16 +525,13 @@ public class PoseEditorScreen extends Screen {
 
     private void refreshModeButtons() {
         if (rotateBtn == null || moveBtn == null) return;
-        boolean forced = cursorSelected();
-        if (forced) moveMode = true;
-        // Both stay clickable so either can be picked; on the cursor row the cursor
-        // can only be moved, so Rotate is greyed out instead of silently ignored.
-        rotateBtn.active = !forced;
+        rotateBtn.active = true;
         moveBtn.active = true;
     }
 
     /** Border around the two mode buttons plus a marker on the mode in use. */
     private void drawModeGroup(GuiGraphicsExtractor graphics) {
+        if (listTab != 0) return;
         if (rotateBtn == null || moveBtn == null) return;
         if (modeGroupX1 <= modeGroupX0) return;
 
@@ -509,6 +561,7 @@ public class PoseEditorScreen extends Screen {
      * re-apply them, which re-reads the pose files from disk.
      */
     private void toggleUnload() {
+        lastDeletedName = null;
         if (PlayerPoseClient.arePosesEnabled()) {
             PlayerPoseClient.setPosesEnabled(false);
             setStatus(Component.translatable("playerpose.status.unloaded"));
@@ -528,12 +581,8 @@ public class PoseEditorScreen extends Screen {
 
     private void resetRow() {
         beginEdit();
-        if (cursorSelected()) {
-            cX = 0; cY = 0; cZ = 0;
-        } else {
-            rotX = 0; rotY = 0; rotZ = 0;
-            tX = 0; tY = 0; tZ = 0;
-        }
+        rotX = 0; rotY = 0; rotZ = 0;
+        tX = 0; tY = 0; tZ = 0;
         commit();
         setStatus(Component.translatable("playerpose.status.reset", selected));
     }
@@ -549,9 +598,8 @@ public class PoseEditorScreen extends Screen {
     protected void init() {
         super.init();
         Font font = this.font;
-        int y0 = 6;
 
-        nameBox = new EditBox(font, LEFT_X, y0, LEFT_W, CTRL_H, Component.empty());
+        nameBox = new EditBox(font, LEFT_X, 6, LEFT_W, CTRL_H, Component.empty());
         nameBox.setHint(Component.translatable("playerpose.poseNameHint"));
         nameBox.setMaxLength(32);
         nameBox.setValue(workingPose != null && workingPose.getName() != null ? workingPose.getName() : "");
@@ -559,55 +607,84 @@ public class PoseEditorScreen extends Screen {
         // so typing a new name cannot detach the pose from its file.
         addRenderableWidget(nameBox);
 
-        // Buttons shrink on narrow windows so the whole row of nine always fits.
-        int gap = 4;
-        int bx = LEFT_X + LEFT_W + 8;
-        int btnW = Math.max(30, Math.min(52, (width - bx - 8 - gap * 8) / 9));
+        // Left sidebar: Save and Done are common; the active tab swaps the other four
+        // buttons (Rotate/Move/Reset/Reset All on Bones, New/Delete/Unload on Poses).
+        int col2 = LEFT_X + BTN_W + BTN_GAP;
 
-        addRenderableWidget(Button.builder(Component.translatable("playerpose.newBtn"), b -> newPose())
-            .bounds(bx, y0, btnW, CTRL_H).build());
         addRenderableWidget(Button.builder(Component.translatable("playerpose.saveBtn"), b -> savePose())
-            .bounds(bx + (btnW + gap), y0, btnW, CTRL_H).build());
-        addRenderableWidget(Button.builder(Component.translatable("playerpose.resetBtn"), b -> resetRow())
-            .bounds(bx + (btnW + gap) * 2, y0, btnW, CTRL_H).build());
-        addRenderableWidget(Button.builder(Component.translatable("playerpose.resetAllBtn"), b -> resetAll())
-            .bounds(bx + (btnW + gap) * 3, y0, btnW, CTRL_H).build());
+            .bounds(LEFT_X, BTN_Y, BTN_W, CTRL_H).build());
+        addRenderableWidget(Button.builder(Component.translatable("gui.done"), b -> onClose())
+            .bounds(col2, BTN_Y, BTN_W, CTRL_H).build());
 
+        rotateBtn = Button.builder(Component.translatable("playerpose.modeRotate"), b -> setMode(false))
+            .bounds(LEFT_X, BTN_Y + BTN_ROW_H, BTN_W, CTRL_H).build();
+        moveBtn = Button.builder(Component.translatable("playerpose.modeMove"), b -> setMode(true))
+            .bounds(col2, BTN_Y + BTN_ROW_H, BTN_W, CTRL_H).build();
+        resetBtn = Button.builder(Component.translatable("playerpose.resetBtn"), b -> resetRow())
+            .bounds(LEFT_X, BTN_Y + BTN_ROW_H * 2, BTN_W, CTRL_H).build();
+        resetAllBtn = Button.builder(Component.translatable("playerpose.resetAllBtn"), b -> resetAll())
+            .bounds(col2, BTN_Y + BTN_ROW_H * 2, BTN_W, CTRL_H).build();
+        addRenderableWidget(rotateBtn);
+        addRenderableWidget(moveBtn);
+        addRenderableWidget(resetBtn);
+        addRenderableWidget(resetAllBtn);
+
+        // 2px pad so the grouping border reads as a box around both mode buttons.
+        modeGroupX0 = LEFT_X - 2;
+        modeGroupY0 = BTN_Y + BTN_ROW_H - 2;
+        modeGroupX1 = col2 + BTN_W + 2;
+        modeGroupY1 = BTN_Y + BTN_ROW_H + CTRL_H + 2;
+        refreshModeButtons();
+
+        newBtn = Button.builder(Component.translatable("playerpose.newBtn"), b -> newPose())
+            .bounds(LEFT_X, BTN_Y + BTN_ROW_H, BTN_W, CTRL_H).build();
         deleteBtn = Button.builder(Component.translatable("playerpose.deleteBtn"), b -> deletePose())
-            .bounds(bx + (btnW + gap) * 4, y0, btnW, CTRL_H).build();
-        addRenderableWidget(deleteBtn);
-
+            .bounds(col2, BTN_Y + BTN_ROW_H, BTN_W, CTRL_H).build();
+        // Load applies the selected pose without navigating away from the list.
+        loadBtn = Button.builder(Component.translatable("playerpose.loadBtn"), b -> loadPose())
+            .bounds(LEFT_X, BTN_Y + BTN_ROW_H * 2, BTN_W, CTRL_H).build();
         unloadBtn = Button.builder(unloadLabel(), b -> toggleUnload())
-            .bounds(bx + (btnW + gap) * 5, y0, btnW, CTRL_H).build();
+            .bounds(col2, BTN_Y + BTN_ROW_H * 2, BTN_W, CTRL_H).build();
+        addRenderableWidget(newBtn);
+        addRenderableWidget(deleteBtn);
+        addRenderableWidget(loadBtn);
         addRenderableWidget(unloadBtn);
         refreshUnloadButton();
 
-        int groupX = bx + (btnW + gap) * 6;
-        rotateBtn = Button.builder(Component.translatable("playerpose.modeRotate"), b -> setMode(false))
-            .bounds(groupX, y0, btnW, CTRL_H).build();
-        moveBtn = Button.builder(Component.translatable("playerpose.modeMove"), b -> setMode(true))
-            .bounds(groupX + btnW + gap, y0, btnW, CTRL_H).build();
-        addRenderableWidget(deleteBtn);
-        addRenderableWidget(rotateBtn);
-        addRenderableWidget(moveBtn);
+        updateActionButtons();
 
-        // 2px pad so the grouping border reads as a box around both buttons.
-        modeGroupX0 = groupX - 2;
-        modeGroupY0 = y0 - 2;
-        modeGroupX1 = groupX + (btnW + gap) * 2 - gap + 2;
-        modeGroupY1 = y0 + CTRL_H + 2; if (modeGroupY1 > TITLE_H - 1) modeGroupY1 = TITLE_H - 1;
-        refreshModeButtons();
-
-        addRenderableWidget(Button.builder(Component.translatable("gui.cancel"), b -> onClose())
-            .bounds(Math.max(width - btnW - 8, bx + (btnW + gap) * 8), y0, btnW, CTRL_H).build());
-
-        vpX0 = RIGHT_X;
-        vpY0 = TITLE_H + 2;
+        vpX0 = LEFT_X + LEFT_W + 8;
+        vpY0 = TOP_H;
         vpX1 = Math.max(vpX0 + 80, width - 8);
         vpY1 = Math.max(vpY0 + 80, height - STATUS_H - 4);
 
         PlayerPoseClient.setEditorPreviewPose(workingPose);
         refreshPoseList();
+    }
+
+    /** Save/Done stay; the other four actions follow the active list tab. */
+    private void updateActionButtons() {
+        boolean bones = listTab == 0;
+        if (rotateBtn != null) rotateBtn.visible = bones;
+        if (moveBtn != null) moveBtn.visible = bones;
+        if (resetBtn != null) resetBtn.visible = bones;
+        if (resetAllBtn != null) resetAllBtn.visible = bones;
+        if (newBtn != null) newBtn.visible = !bones;
+        if (deleteBtn != null) deleteBtn.visible = !bones;
+        if (loadBtn != null) loadBtn.visible = !bones;
+        if (unloadBtn != null) unloadBtn.visible = !bones;
+    }
+
+    private void setTab(int tab) {
+        if (listTab == tab) return;
+        listTab = tab;
+        listScroll = 0;
+        updateActionButtons();
+        if (tab == 0) {
+            ensureRowVisible(ROWS.indexOf(selected));
+        } else {
+            ensureWorkingPoseVisible();
+        }
     }
 
     private double modelPxPerBlock() {
@@ -618,24 +695,21 @@ public class PoseEditorScreen extends Screen {
         return new double[] {(vpX0 + vpX1) / 2.0, (vpY0 + vpY1) / 2.0};
     }
 
-    /** Animated rest pivot of a row, in model units. */
-    private float[] pivotFor(String row) {
-        float[] pivot = PlayerPoseClient.getJointPivot(cursorSelected() ? "body" : row);
-        if (pivot != null) return pivot;
-        int idx = ROWS.indexOf(row);
-        return FALLBACK_PIVOTS[idx < 0 ? 0 : idx];
-    }
-
     /**
-     * Screen position of the pivot the gizmo sits on: the selected bone's joint,
-     * plus its own translate offset, plus the cursor.
+     * Screen position of the joint the gizmo sits on. The pivots published by the
+     * mixins are live model positions, so they already include the pose's translate
+     * offset; only the static fallback table still needs it added.
      */
     private double[] gizmoCenter() {
-        float[] pivot = pivotFor(selected);
-        double ox = cursorSelected() ? 0.0 : tX;
-        double oy = cursorSelected() ? 0.0 : tY;
-        double oz = cursorSelected() ? 0.0 : tZ;
-        ox += cX; oy += cY; oz += cZ;
+        float[] pivot = PlayerPoseClient.getJointPivot(selected);
+        double ox = 0.0, oy = 0.0, oz = 0.0;
+        if (pivot == null) {
+            int idx = ROWS.indexOf(selected);
+            pivot = FALLBACK_PIVOTS[idx < 0 ? 0 : idx];
+            ox = tX;
+            oy = tY;
+            oz = tZ;
+        }
 
         double[] c = viewportCenter();
         return PoseGizmo.projectPivot(c[0], c[1], modelPxPerBlock(),
@@ -660,18 +734,20 @@ public class PoseEditorScreen extends Screen {
     @Override
     public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
         graphics.fill(0, 0, width, height, 0xFF101018);
-        graphics.fill(0, 0, width, TITLE_H, 0x30FFFFFF);
         graphics.fill(0, height - STATUS_H, width, height, 0x30FFFFFF);
 
         Font font = this.font;
+
+        // Left sidebar behind the name field, action grid, bone list and pose list.
+        panel(graphics, 4, 4, LEFT_X + LEFT_W + 4, height - STATUS_H);
 
         // Keeps the mode button honest no matter how the mode changed.
         refreshModeButtons();
         refreshUnloadButton();
 
         drawViewport(graphics, mouseX, mouseY, partialTick);
-        drawRowList(graphics, font, mouseX, mouseY);
-        drawPoseList(graphics, font, mouseX, mouseY);
+        drawTopInfo(graphics, font);
+        drawList(graphics, font, mouseX, mouseY);
         drawStatusBar(graphics, font);
 
         super.extractRenderState(graphics, mouseX, mouseY, partialTick);
@@ -701,32 +777,45 @@ public class PoseEditorScreen extends Screen {
         buildGizmo(graphics, hoverAxis).draw();
         graphics.disableScissor();
 
-        int tx = vpX0 + 4;
-        int ty = vpY0 + 4;
+        // The model owns the viewport; the read-out lives in the top strip instead of
+        // painting over the head.
+        graphics.fill(vpX0, vpY1 - 14, vpX1, vpY1, 0x66000000);
+        String hint = font.plainSubstrByWidth(
+            Component.translatable("playerpose.viewportHint").getString(), vpX1 - vpX0 - 8);
+        graphics.text(font, Component.literal(hint), vpX0 + 4, vpY1 - 12, 0xFF888899);
+    }
+
+    /** Selected bone, mode, unsaved badge and axis read-out, above the viewport. */
+    private void drawTopInfo(GuiGraphicsExtractor graphics, Font font) {
+        panel(graphics, vpX0, INFO_Y, vpX1, INFO_Y + INFO_H);
+        int maxW = vpX1 - vpX0 - 8;
+
         Component mode = Component.translatable(moveMode ? "playerpose.modeMove" : "playerpose.modeRotate");
-        graphics.text(font, Component.literal(selected + "  [" + mode.getString() + "]"), tx, ty, 0xFFFFFFFF);
+        String selectedLine = itemLabel(selected).getString() + "  [" + mode.getString() + "]";
+        graphics.text(font, Component.literal(font.plainSubstrByWidth(selectedLine, maxW)),
+            vpX0 + 4, INFO_Y + 3, 0xFFFFFFFF);
 
         if (workingPose == null || workingPose.getName() == null || workingPose.getName().isBlank()) {
-            graphics.text(font, Component.translatable("playerpose.unsavedPose"), tx, ty + 42, 0xFFFFC24A);
+            Component unsaved = Component.translatable("playerpose.unsavedBadge");
+            if (font.width(selectedLine) + font.width(unsaved) + 16 < maxW) {
+                graphics.text(font, unsaved, vpX1 - 4 - font.width(unsaved),
+                    INFO_Y + 3, 0xFFFFC24A);
+            }
         }
 
-        if (moveMode) {
-            graphics.text(font, vecLabel("X", translationFor(PoseGizmo.AXIS_X)), tx, ty + 10,
-                PoseGizmo.AXIS_X == activeAxis ? 0xFFFFFFFF : 0xFFFF5555);
-            graphics.text(font, vecLabel("Y", translationFor(PoseGizmo.AXIS_Y)), tx, ty + 20,
-                PoseGizmo.AXIS_Y == activeAxis ? 0xFFFFFFFF : 0xFF6FD44F);
-            graphics.text(font, vecLabel("Z", translationFor(PoseGizmo.AXIS_Z)), tx, ty + 30,
-                PoseGizmo.AXIS_Z == activeAxis ? 0xFFFFFFFF : 0xFF4F86FF);
-        } else {
-            graphics.text(font, angleLabel("X", PoseGizmo.AXIS_X), tx, ty + 10,
-                PoseGizmo.AXIS_X == activeAxis ? 0xFFFFFFFF : 0xFFFF5555);
-            graphics.text(font, angleLabel("Y", PoseGizmo.AXIS_Y), tx, ty + 20,
-                PoseGizmo.AXIS_Y == activeAxis ? 0xFFFFFFFF : 0xFF6FD44F);
-            graphics.text(font, angleLabel("Z", PoseGizmo.AXIS_Z), tx, ty + 30,
-                PoseGizmo.AXIS_Z == activeAxis ? 0xFFFFFFFF : 0xFF4F86FF);
+        String[] axisNames = {"X", "Y", "Z"};
+        int[] axisColors = {0xFFFF5555, 0xFF6FD44F, 0xFF4F86FF};
+        int ax = vpX0 + 4;
+        for (int i = 0; i < 3; i++) {
+            Component label = moveMode
+                ? vecLabel(axisNames[i], translationFor(i))
+                : angleLabel(axisNames[i], i);
+            int labelW = font.width(label);
+            if (ax + labelW > vpX1 - 4) break;
+            graphics.text(font, label, ax, INFO_Y + 13,
+                i == activeAxis ? 0xFFFFFFFF : axisColors[i]);
+            ax += labelW + 8;
         }
-
-        graphics.text(font, Component.translatable("playerpose.viewportHint"), tx, vpY1 - 12, 0xFF888899);
     }
 
     private Component angleLabel(String name, int axis) {
@@ -773,30 +862,225 @@ public class PoseEditorScreen extends Screen {
         graphics.entity(state, (float) modelPxPerBlock(), offset, rot, pitchQ, vpX0, vpY0, vpX1, vpY1);
     }
 
-    private void drawRowList(GuiGraphicsExtractor graphics, Font font, int mouseX, int mouseY) {
-        // Framed panel so the list reads as one group, matching the mode box.
-        panel(graphics, LEFT_X - 3, TITLE_H - 15, LEFT_X + LEFT_W + 3, BONE_Y0 + ROWS.size() * ROW_H + 3);
-        graphics.text(font, Component.translatable("playerpose.bonesLabel"), LEFT_X + 4, TITLE_H - 12, 0xFFFFFFFF);
-        separator(graphics, LEFT_X - 1, LEFT_X + LEFT_W + 1, TITLE_H - 1);
+    /**
+     * The left panel body: a clickable mannequin on the Bones tab, a scrollable saved
+     * pose list on the Poses tab. Tabs keep both sets reachable on short GUI scales
+     * without the old fixed-height lists overlapping the status bar.
+     */
+    private void drawList(GuiGraphicsExtractor graphics, Font font, int mouseX, int mouseY) {
+        int bottom = height - STATUS_H - 2;
+        panel(graphics, LEFT_X - 3, TAB_Y - 2, LEFT_X + LEFT_W + 3, bottom);
+        drawTabs(graphics, font, mouseX, mouseY);
 
-        for (int i = 0; i < ROWS.size(); i++) {
-            String row = ROWS.get(i);
-            int yy = BONE_Y0 + i * ROW_H;
-            boolean isSelected = row.equals(selected);
+        int rows = listWindow();
+        boolean enabled = PlayerPoseClient.arePosesEnabled();
+
+        if (listTab == 0) {
+            drawBoneFigure(graphics, font, mouseX, mouseY);
+            return;
+        }
+
+        if (savedPoseNames.isEmpty()) {
+            graphics.text(font, Component.translatable("playerpose.noPoses"),
+                LEFT_X + 4, LIST_Y + 4, 0xFF888888);
+        }
+
+        for (int k = 0; k < rows; k++) {
+            int index = listScroll + k;
+            if (index >= listTotalRows()) break;
+            int yy = LIST_Y + k * ROW_H;
+
+            String name = savedPoseNames.get(index);
+            String activeName = PlayerPoseClient.getActivePoseName();
+            // Blue shading = the pose that is actually loaded. Amber frame = the pose
+            // the editor is showing. They can be different, and both can share a row.
+            boolean inEffect = enabled && name.equals(activeName);
+            boolean isSelected = workingPose != null && name.equals(workingPose.getName());
             boolean hover = isOver(mouseX, mouseY, LEFT_X, yy, LEFT_W, ROW_H);
-            if (isSelected) {
-                graphics.fill(LEFT_X, yy, LEFT_X + LEFT_W, yy + ROW_H, 0x6644AA44);
+
+            if (inEffect) {
+                graphics.fill(LEFT_X, yy, LEFT_X + LEFT_W, yy + ROW_H, 0x664444AA);
             } else if (hover) {
                 graphics.fill(LEFT_X, yy, LEFT_X + LEFT_W, yy + ROW_H, 0x33FFFFFF);
             }
-            graphics.text(font, itemLabel(row), LEFT_X + 4, yy + 3,
-                isSelected ? 0xFFFFFFFF : 0xFFCCCCCC);
+            if (isSelected) {
+                int y0 = yy;
+                int y1 = yy + ROW_H;
+                graphics.fill(LEFT_X, y0, LEFT_X + LEFT_W, y0 + 1, 0xFFFFC24A);
+                graphics.fill(LEFT_X, y1 - 1, LEFT_X + LEFT_W, y1, 0xFFFFC24A);
+                graphics.fill(LEFT_X, y0, LEFT_X + 1, y1, 0xFFFFC24A);
+                graphics.fill(LEFT_X + LEFT_W - 1, y0, LEFT_X + LEFT_W, y1, 0xFFFFC24A);
+            }
+            int textColor = inEffect || isSelected ? 0xFFFFFFFF
+                : enabled ? 0xFFCCCCCC : 0xFF8891A0;
+            graphics.text(font, Component.literal(font.plainSubstrByWidth(name, LEFT_W - 8)),
+                LEFT_X + 4, yy + 3, textColor);
         }
+
+        // Scrollbar for the active tab.
+        if (maxListScroll() > 0) {
+            int trackX = LEFT_X + LEFT_W - 3;
+            int trackTop = LIST_Y;
+            int trackH = Math.max(ROW_H, rows * ROW_H);
+            graphics.fill(trackX, trackTop, trackX + 2, trackTop + trackH, 0x40FFFFFF);
+            int total = Math.max(1, listTotalRows());
+            int thumbH = Math.max(8, trackH * rows / total);
+            int thumbY = trackTop + (trackH - thumbH) * listScroll / Math.max(1, maxListScroll());
+            graphics.fill(trackX, thumbY, trackX + 2, thumbY + thumbH, 0xCCFFFFFF);
+        }
+    }
+
+    // ---- clickable mannequin (Bones tab) ---------------------------------
+
+    private static final int FIG_CAPE_CHIP_H = 14;
+
+    /**
+     * Geometry of the small mannequin. Parts are laid out in classic 16 x 32 skin
+     * units (the player model), then scaled to whatever height the sidebar has.
+     */
+    private record BoneFigure(int cx, int top, double scale,
+                              int chipX0, int chipY0, int chipX1, int chipY1,
+                              int captionY) {
+        int x(double unit) { return (int) Math.round(cx + unit * scale); }
+        int y(double unit) { return (int) Math.round(top + unit * scale); }
+    }
+
+    private BoneFigure boneFigure() {
+        int areaTop = LIST_Y + 2;
+        int areaBottom = height - STATUS_H - 4;
+        int captionY = areaBottom - 9;
+        int chipY1 = captionY - 3;
+        int chipY0 = chipY1 - FIG_CAPE_CHIP_H;
+        int available = Math.max(40, chipY0 - 4 - areaTop);
+        double scale = Math.min(available / 32.0, (LEFT_W - 56) / 16.0);
+        scale = Math.max(1.5, scale);
+        int figureH = (int) Math.round(32 * scale);
+        int top = areaTop + Math.max(0, (available - figureH) / 2);
+        int cx = LEFT_X + LEFT_W / 2;
+        int chipW = 64;
+        return new BoneFigure(cx, top, scale,
+            cx - chipW / 2, chipY0, cx + chipW / 2, chipY1, captionY);
+    }
+
+    private void drawBoneFigure(GuiGraphicsExtractor graphics, Font font, int mouseX, int mouseY) {
+        BoneFigure f = boneFigure();
+        String hover = boneAt(mouseX, mouseY);
+
+        // Same left/right as the rendered model: facing the viewer, the player's left
+        // hand is on the right of the panel.
+        drawBonePart(graphics, f, "head", -4, 0, 4, 8, 0xFFD8A77A, hover);
+        drawBonePart(graphics, f, "body", -4, 8, 4, 20, 0xFF41689A, hover);
+        drawBonePart(graphics, f, "leftArm", 4, 8, 8, 14, 0xFF41689A, hover);
+        drawBonePart(graphics, f, "leftForearm", 4, 14, 8, 20, 0xFFD8A77A, hover);
+        drawBonePart(graphics, f, "rightArm", -8, 8, -4, 14, 0xFF41689A, hover);
+        drawBonePart(graphics, f, "rightForearm", -8, 14, -4, 20, 0xFFD8A77A, hover);
+        drawBonePart(graphics, f, "leftLeg", 0, 20, 4, 26, 0xFF344A66, hover);
+        drawBonePart(graphics, f, "leftShin", 0, 26, 4, 32, 0xFF22364F, hover);
+        drawBonePart(graphics, f, "rightLeg", -4, 20, 0, 26, 0xFF344A66, hover);
+        drawBonePart(graphics, f, "rightShin", -4, 26, 0, 32, 0xFF22364F, hover);
+
+        // Side letters, so "left" means the player's left, not the viewer's.
+        int markerY = f.y(12);
+        graphics.text(font, Component.literal("L"), f.x(8) + 3, markerY, 0xFF7F889A);
+        Component right = Component.literal("R");
+        graphics.text(font, right, f.x(-8) - 3 - font.width(right), markerY, 0xFF7F889A);
+
+        boolean capeSelected = "cape".equals(selected);
+        boolean capeHover = "cape".equals(hover);
+        graphics.fill(f.chipX0(), f.chipY0(), f.chipX1(), f.chipY1(),
+            capeSelected ? 0x6644AA44 : capeHover ? 0x33FFFFFF : 0x55222233);
+        int capeBorder = capeSelected ? 0xFF7FD46A
+            : capeHover ? 0xFFFFC24A : 0xFF3E4862;
+        graphics.fill(f.chipX0(), f.chipY0(), f.chipX1(), f.chipY0() + 1, capeBorder);
+        graphics.fill(f.chipX0(), f.chipY1() - 1, f.chipX1(), f.chipY1(), capeBorder);
+        graphics.fill(f.chipX0(), f.chipY0(), f.chipX0() + 1, f.chipY1(), capeBorder);
+        graphics.fill(f.chipX1() - 1, f.chipY0(), f.chipX1(), f.chipY1(), capeBorder);
+        Component cape = itemLabel("cape");
+        graphics.text(font, cape, f.cx() - font.width(cape) / 2, f.chipY0() + 3,
+            capeSelected || capeHover ? 0xFFFFFFFF : 0xFFCCCCCC);
+
+        // Hover wins so the name under the cursor is readable before clicking.
+        String shown = hover != null ? hover : selected;
+        Component caption = itemLabel(shown);
+        graphics.text(font, caption, f.cx() - font.width(caption) / 2, f.captionY(),
+            hover != null ? 0xFFFFC24A : 0xFFCCCCCC);
+    }
+
+    private void drawBonePart(GuiGraphicsExtractor graphics, BoneFigure f, String bone,
+                              double x0, double y0, double x1, double y1,
+                              int argb, String hover) {
+        int px0 = f.x(x0), py0 = f.y(y0), px1 = f.x(x1), py1 = f.y(y1);
+        graphics.fill(px0, py0, px1, py1, argb);
+        boolean isSelected = bone.equals(selected);
+        if (!isSelected && bone.equals(hover)) {
+            graphics.fill(px0, py0, px1, py1, 0x40FFFFFF);
+        }
+        if (isSelected) {
+            graphics.fill(px0, py0, px1, py1, 0x6644AA44);
+            graphics.fill(px0, py0, px1, py0 + 1, 0xFF7FD46A);
+            graphics.fill(px0, py1 - 1, px1, py1, 0xFF7FD46A);
+            graphics.fill(px0, py0, px0 + 1, py1, 0xFF7FD46A);
+            graphics.fill(px1 - 1, py0, px1, py1, 0xFF7FD46A);
+        }
+    }
+
+    /** Bone under the cursor on the Bones tab, or null. */
+    private String boneAt(double mouseX, double mouseY) {
+        if (listTab != 0) return null;
+        BoneFigure f = boneFigure();
+
+        if (mouseX >= f.chipX0() && mouseX < f.chipX1()
+            && mouseY >= f.chipY0() && mouseY < f.chipY1()) {
+            return "cape";
+        }
+        if (inFigure(f, mouseX, mouseY, -4, 0, 4, 8)) return "head";
+        if (inFigure(f, mouseX, mouseY, -4, 8, 4, 20)) return "body";
+        if (inFigure(f, mouseX, mouseY, 4, 8, 8, 14)) return "leftArm";
+        if (inFigure(f, mouseX, mouseY, 4, 14, 8, 20)) return "leftForearm";
+        if (inFigure(f, mouseX, mouseY, -8, 8, -4, 14)) return "rightArm";
+        if (inFigure(f, mouseX, mouseY, -8, 14, -4, 20)) return "rightForearm";
+        if (inFigure(f, mouseX, mouseY, 0, 20, 4, 26)) return "leftLeg";
+        if (inFigure(f, mouseX, mouseY, 0, 26, 4, 32)) return "leftShin";
+        if (inFigure(f, mouseX, mouseY, -4, 20, 0, 26)) return "rightLeg";
+        if (inFigure(f, mouseX, mouseY, -4, 26, 0, 32)) return "rightShin";
+        return null;
+    }
+
+    private static boolean inFigure(BoneFigure f, double x, double y,
+                                    double x0, double y0, double x1, double y1) {
+        return x >= f.x(x0) && x < f.x(x1) && y >= f.y(y0) && y < f.y(y1);
+    }
+
+    private void drawTabs(GuiGraphicsExtractor graphics, Font font, int mouseX, int mouseY) {
+        int tabW = (LEFT_W - TAB_GAP) / 2;
+        boolean enabled = PlayerPoseClient.arePosesEnabled();
+        for (int tab = 0; tab < 2; tab++) {
+            int x = LEFT_X + tab * (tabW + TAB_GAP);
+            boolean active = listTab == tab;
+            boolean hover = isOver(mouseX, mouseY, x, TAB_Y, tabW, TAB_H);
+            int bg = active ? 0x6644AA44 : hover ? 0x33FFFFFF : 0x33000000;
+            graphics.fill(x, TAB_Y, x + tabW, TAB_Y + TAB_H, bg);
+
+            Component label = Component.translatable(tab == 0
+                ? "playerpose.bonesTab" : "playerpose.posesTab");
+            int color = active ? 0xFFFFFFFF
+                : tab == 1 && !enabled ? 0xFFFFC24A : 0xFFCCCCCC;
+            graphics.text(font, label, x + (tabW - font.width(label)) / 2, TAB_Y + 4, color);
+        }
+        separator(graphics, LEFT_X - 1, LEFT_X + LEFT_W + 1, TAB_Y + TAB_H);
+    }
+
+    /** Tab index under the cursor, or -1. */
+    private int tabAt(double x, double y) {
+        if (y < TAB_Y || y >= TAB_Y + TAB_H) return -1;
+        int tabW = (LEFT_W - TAB_GAP) / 2;
+        if (x >= LEFT_X && x < LEFT_X + tabW) return 0;
+        if (x >= LEFT_X + tabW + TAB_GAP && x < LEFT_X + LEFT_W) return 1;
+        return -1;
     }
 
     /** Display name for a left-bar row. */
     private Component itemLabel(String row) {
-        if (CURSOR.equals(row)) return Component.translatable("playerpose.cursorRow");
         return Component.translatable("playerpose.bone." + row);
     }
 
@@ -812,69 +1096,30 @@ public class PoseEditorScreen extends Screen {
         graphics.fill(x0, y, x1, y + 1, 0x55FFFFFF);
     }
 
-    private void drawPoseList(GuiGraphicsExtractor graphics, Font font, int mouseX, int mouseY) {
-        int rows = visiblePoseRows();
-        boolean enabled = PlayerPoseClient.arePosesEnabled();
-
-        panel(graphics, LEFT_X - 3, POSE_LABEL_Y - 4, LEFT_X + LEFT_W + 3, POSE_Y0 + rows * ROW_H + 3);
-        Component header = Component.translatable(enabled
-            ? "playerpose.savedPosesLabel" : "playerpose.savedPosesLabelUnloaded");
-        graphics.text(font, header, LEFT_X + 4, POSE_LABEL_Y, enabled ? 0xFFFFFFFF : 0xFFFFC24A);
-        separator(graphics, LEFT_X - 1, LEFT_X + LEFT_W + 1, POSE_Y0 - 4);
-
-        for (int i = 0; i < rows; i++) {
-            String name = savedPoseNames.get(poseScroll + i);
-            int yy = POSE_Y0 + i * ROW_H;
-            boolean isWorking = workingPose != null && name.equals(workingPose.getName());
-            // Blue means "this pose is actually in effect" - nothing is while unloaded.
-            boolean inEffect = enabled && isWorking;
-            boolean hover = isOver(mouseX, mouseY, LEFT_X, yy, LEFT_W, ROW_H);
-
-            if (inEffect) {
-                graphics.fill(LEFT_X, yy, LEFT_X + LEFT_W, yy + ROW_H, 0x664444AA);
-            } else if (isWorking) {
-                // Still the one being edited, but not applied: amber outline instead.
-                graphics.fill(LEFT_X, yy, LEFT_X + LEFT_W, yy + 1, 0x99FFC24A);
-                graphics.fill(LEFT_X, yy + ROW_H - 1, LEFT_X + LEFT_W, yy + ROW_H, 0x99FFC24A);
-            } else if (hover) {
-                graphics.fill(LEFT_X, yy, LEFT_X + LEFT_W, yy + ROW_H, 0x33FFFFFF);
-            }
-            graphics.text(font, Component.literal(name), LEFT_X + 4, yy + 3,
-                inEffect ? 0xFFFFFFFF : enabled ? 0xFFCCCCCC : 0xFF8891A0);
-        }
-
-        // Scrollbar, so it is obvious there are more poses than the panel shows.
-        if (maxPoseScroll() > 0) {
-            int trackX = LEFT_X + LEFT_W - 3;
-            int trackTop = POSE_Y0;
-            int trackH = Math.max(ROW_H, rows * ROW_H);
-            graphics.fill(trackX, trackTop, trackX + 2, trackTop + trackH, 0x40FFFFFF);
-            int thumbH = Math.max(8, trackH * rows / Math.max(1, savedPoseNames.size()));
-            int thumbY = trackTop + (trackH - thumbH) * poseScroll / Math.max(1, maxPoseScroll());
-            graphics.fill(trackX, thumbY, trackX + 2, thumbY + thumbH, 0xCCFFFFFF);
-        }
+    /** Number of rows that fit in the combined list above the status bar. */
+    private int listWindow() {
+        int bottom = height - STATUS_H - 4;
+        return Math.max(0, (bottom - LIST_Y) / ROW_H);
     }
 
-    /** How many saved-pose rows fit between the header and the status bar. */
-    private int poseWindow() {
-        return Math.max(0, (height - STATUS_H - 4 - POSE_Y0) / ROW_H);
+    /** Rows of the active tab; the Bones tab is a mannequin, not a list. */
+    private int listTotalRows() {
+        return listTab == 0 ? 0 : savedPoseNames.size();
     }
 
-    /** How many rows are actually drawn (the window, or fewer if the list is short). */
-    private int visiblePoseRows() {
-        return Math.min(savedPoseNames.size(), poseWindow());
-    }
-
-    private int maxPoseScroll() {
-        return Math.max(0, savedPoseNames.size() - poseWindow());
+    private int maxListScroll() {
+        return Math.max(0, listTotalRows() - listWindow());
     }
 
     private void drawStatusBar(GuiGraphicsExtractor graphics, Font font) {
         int y = height - STATUS_H + 5;
         if (!statusMsg.isEmpty() && System.currentTimeMillis() < statusUntil) {
-            graphics.text(font, Component.literal(statusMsg), LEFT_X, y, 0xFFFFFF88);
+            graphics.text(font, Component.literal(font.plainSubstrByWidth(statusMsg, width - 16)),
+                LEFT_X, y, 0xFFFFFF88);
         } else {
-            graphics.text(font, Component.translatable("playerpose.hint"), LEFT_X, y, 0xFF888888);
+            String hint = font.plainSubstrByWidth(
+                Component.translatable("playerpose.hint").getString(), width - 16);
+            graphics.text(font, Component.literal(hint), LEFT_X, y, 0xFF888888);
         }
     }
 
@@ -886,28 +1131,16 @@ public class PoseEditorScreen extends Screen {
         return x >= vpX0 && x < vpX1 && y >= vpY0 && y < vpY1;
     }
 
-    private boolean inRowList(double x, double y) {
+    private boolean inList(double x, double y) {
         return x >= LEFT_X && x < LEFT_X + LEFT_W
-            && y >= BONE_Y0 && y < BONE_Y0 + ROWS.size() * ROW_H;
+            && y >= LIST_Y && y < height - STATUS_H - 4;
     }
 
-    private boolean inPoseList(double x, double y) {
-        int rows = visiblePoseRows();
-        return rows > 0 && x >= LEFT_X && x < LEFT_X + LEFT_W
-            && y >= POSE_Y0 && y < POSE_Y0 + rows * ROW_H;
-    }
-
-    /** Row index under the cursor, or -1. */
-    private int rowAt(double x, double y) {
-        if (!inRowList(x, y)) return -1;
-        int idx = (int) ((y - BONE_Y0) / ROW_H);
-        return idx >= 0 && idx < ROWS.size() ? idx : -1;
-    }
-
-    private int poseRowAt(double x, double y) {
-        if (!inPoseList(x, y)) return -1;
-        int idx = poseScroll + (int) ((y - POSE_Y0) / ROW_H);
-        return idx >= 0 && idx < savedPoseNames.size() ? idx : -1;
+    /** Combined-list row index under the cursor, or -1. */
+    private int listRowAt(double x, double y) {
+        if (!inList(x, y)) return -1;
+        int index = listScroll + (int) ((y - LIST_Y) / ROW_H);
+        return index >= 0 && index < listTotalRows() ? index : -1;
     }
 
     // ---- input -----------------------------------------------------------
@@ -921,18 +1154,28 @@ public class PoseEditorScreen extends Screen {
         }
         orbiting = false;
 
-        int row = rowAt(event.x(), event.y());
-        if (row >= 0) {
-            activeAxis = PoseGizmo.NONE;
-            if (!ROWS.get(row).equals(selected)) selectRow(ROWS.get(row));
+        int tab = tabAt(event.x(), event.y());
+        if (tab >= 0) {
+            setTab(tab);
             return true;
         }
 
-        int poseRow = poseRowAt(event.x(), event.y());
-        if (poseRow >= 0) {
-            activeAxis = PoseGizmo.NONE;
-            selectPose(savedPoseNames.get(poseRow));
-            return true;
+        if (listTab == 0) {
+            String bone = boneAt(event.x(), event.y());
+            if (bone != null) {
+                activeAxis = PoseGizmo.NONE;
+                if (!bone.equals(selected)) selectRow(bone);
+                return true;
+            }
+        } else {
+            int listRow = listRowAt(event.x(), event.y());
+            if (listRow >= 0) {
+                activeAxis = PoseGizmo.NONE;
+                if (listRow < savedPoseNames.size()) {
+                    selectPose(savedPoseNames.get(listRow));
+                }
+                return true;
+            }
         }
 
         if (inViewport(event.x(), event.y())) {
@@ -1013,9 +1256,9 @@ public class PoseEditorScreen extends Screen {
         }
         // The wheel over the saved-pose list walks the list. Without this, poses past
         // the bottom of the panel were visible in the list but impossible to select.
-        if (inPoseList(mouseX, mouseY) && maxPoseScroll() > 0) {
+        if (inList(mouseX, mouseY) && maxListScroll() > 0) {
             int step = scrollY < 0 ? 1 : scrollY > 0 ? -1 : 0;
-            poseScroll = Math.max(0, Math.min(poseScroll + step, maxPoseScroll()));
+            listScroll = Math.max(0, Math.min(listScroll + step, maxListScroll()));
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
@@ -1061,17 +1304,36 @@ public class PoseEditorScreen extends Screen {
         return super.keyPressed(event);
     }
 
-    @Override
-    public void onClose() {
+    private boolean cleanedUp;
+
+    /**
+     * Clear the editor's session state. Called from both onClose (ESC) and removed
+     * (keybind close, another screen replacing this one, world unload), because those
+     * paths do not all go through onClose.
+     */
+    private void cleanupEditor() {
+        if (cleanedUp) return;
+        cleanedUp = true;
         PoseLog.info("editor close: working='%s' active=%s",
             workingPose == null || workingPose.getName() == null || workingPose.getName().isBlank()
                 ? "(unsaved)" : workingPose.getName(),
             PlayerPoseClient.getActivePoseName() == null ? "none" : "'" + PlayerPoseClient.getActivePoseName() + "'");
         PlayerPoseClient.setEditorPreviewPose(null);
         PlayerPoseClient.setPoseEditorOpen(false);
-        super.onClose();
+        PoseLog.dumpPoses(poseManager, "editor close");
+    }
+
+    @Override
+    public void removed() {
+        super.removed();
+        cleanupEditor();
+    }
+
+    @Override
+    public void onClose() {
+        super.onClose(); // Minecraft#setScreen(null) -> removed() in the normal path
+        cleanupEditor();
         // Tell the player what is now being applied to their model.
         PlayerPoseClient.announceAppliedPose();
-        PoseLog.dumpPoses(poseManager, "editor close");
     }
 }

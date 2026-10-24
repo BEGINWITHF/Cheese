@@ -34,7 +34,6 @@ final class PoseGizmo {
     // Blender's axis colours (X red, Y green, Z blue)
     private static final int[] BRIGHT = {0xFFFF5555, 0xFF6FD44F, 0xFF4F86FF};
     private static final int[] DIM = {0x55FF5555, 0x556FD44F, 0x554F86FF};
-    private static final int CROSSHAIR = 0xFF101010;
 
     private final GuiGraphicsExtractor gfx;
     private final double centerX, centerY, radius;
@@ -164,7 +163,8 @@ final class PoseGizmo {
     // ---- drawing ---------------------------------------------------------
 
     void draw() {
-        drawCenter();
+        // No marker at the pivot itself: the rings' centre already shows where it is, and
+        // a crosshair there just adds clutter over the model.
         drawAxes();
         for (int a = 0; a < 3; a++) drawRing(a);
     }
@@ -201,12 +201,6 @@ final class PoseGizmo {
             double tipY = centerY + dy / n * len;
             stroke(centerX, centerY, tipX, tipY, 1, BRIGHT[a]);
         }
-    }
-
-    private void drawCenter() {
-        double r = radius * 0.42;
-        stroke(centerX - r * 0.95, centerY, centerX + r * 0.95, centerY, 1, CROSSHAIR);
-        stroke(centerX, centerY - r * 0.95, centerX, centerY + r * 0.95, 1, CROSSHAIR);
     }
 
     // ---- primitives ------------------------------------------------------

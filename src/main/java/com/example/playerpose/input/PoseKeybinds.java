@@ -47,6 +47,6 @@ public final class PoseKeybinds {
             }
         });
 
-        LOGGER.info("Registered the pose editor key (default B, rebindable in Controls)");
+        LOGGER.info("Registered the pose editor key (default /, rebindable in Controls)");
     }
 }

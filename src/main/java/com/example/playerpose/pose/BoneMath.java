@@ -35,18 +35,4 @@ public final class BoneMath {
 
         return new double[] {x1, y1, z};
     }
-
-    /**
-     * Offset that turns "rotate about the joint" into "rotate about the cursor".
-     * P + R*(J - P) - J simplifies to cursor - R*cursor, and is exactly zero when the
-     * cursor sits on the joint, so un-rotated bones are left untouched.
-     */
-    public static double[] cursorOffset(Pose pose, PoseBone bone) {
-        double cx = pose.getCursorX();
-        double cy = pose.getCursorY();
-        double cz = pose.getCursorZ();
-        if (!pose.hasCursor()) return new double[] {0.0, 0.0, 0.0};
-        double[] r = rotateZYX(cx, cy, cz, bone.x, bone.y, bone.z);
-        return new double[] {cx - r[0], cy - r[1], cz - r[2]};
-    }
 }

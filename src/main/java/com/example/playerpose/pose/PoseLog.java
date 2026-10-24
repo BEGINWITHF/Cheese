@@ -97,11 +97,10 @@ public final class PoseLog {
             Pose p = mgr.get(name);
             if (p == null) continue;
             String skin = p.getSkin();
-            info("    '%s' skin=%s bones=%d cursor=%s",
+            info("    '%s' skin=%s bones=%d",
                 name,
                 skin == null || skin.isBlank() ? "none" : "'" + skin + "'",
-                p.getBones() == null ? 0 : p.getBones().size(),
-                p.hasCursor() ? "set" : "0");
+                p.getBones() == null ? 0 : p.getBones().size());
         }
         String active = PlayerPoseClient.getActivePoseName();
         info("    active=%s posesEnabled=%s editorOpen=%s",
