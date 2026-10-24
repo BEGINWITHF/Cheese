@@ -10,16 +10,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * The mod's only key bind: open / close the pose editor.
+ * The mod's only key bind: open / close the pose panel.
  *
  * Everything else lives in the editor UI (Save, Load, Reset, Delete and the mode
  * buttons), so there is nothing else to bind.
  *
- * Default is "/" (GLFW_KEY_SLASH). Note this is the same default as the vanilla
- * "Open Command" binding (Options#keyCommand), so with both on "/" the chat opens
- * and this editor takes over the screen - rebind here in Options -> Controls,
- * category "Player Pose", if that gets in the way. P was avoided because it opens
- * the vanilla social interactions / player report screen.
+ * Default is Backspace (GLFW_KEY_BACKSPACE); rebind in Options -> Controls under
+ * the "Cheese" category.
  */
 public final class PoseKeybinds {
 
@@ -35,7 +32,7 @@ public final class PoseKeybinds {
 
     public static void register() {
         editorBinding = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-            "key.playerpose.toggle", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_SLASH, CATEGORY));
+            "key.playerpose.toggle", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_BACKSPACE, CATEGORY));
 
         ClientTickEvents.END_CLIENT_TICK.register(mc -> {
             while (editorBinding.consumeClick()) {
@@ -47,6 +44,6 @@ public final class PoseKeybinds {
             }
         });
 
-        LOGGER.info("Registered the pose editor key (default /, rebindable in Controls)");
+        LOGGER.info("Registered the Open Panel key (default Backspace, rebindable in Controls)");
     }
 }

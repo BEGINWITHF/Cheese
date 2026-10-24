@@ -5,6 +5,7 @@
   "client": [
     "ModelPartAccessor",
     "PoseModelMixin",
+    "PoseLivingRendererMixin",
     "PoseLimbSplitMixin",
     "PoseCapeMixin"
   ],

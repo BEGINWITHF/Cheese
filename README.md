@@ -27,8 +27,9 @@ nothing is sent to the server and other players see you normally.
 
 ## Quick start
 
-1. Press **`/`** in game to open the pose editor. (Rebindable in *Options → Controls →
-   Player Pose*; the default clashes with vanilla's *Open Command*, see [Notes](#notes).)
+1. Stand still (your coordinates must not change and you must not be airborne), then
+   press **Backspace** to open the pose panel. (Rebindable in *Options → Controls →
+   Cheese*.)
 2. Open the **Poses** tab and click a pose (amber frame), or press **New** to start a
    fresh one. Clicking only selects it for editing.
 3. Click a part on the little mannequin in the left panel, then drag a ring to rotate
@@ -48,7 +49,7 @@ were not saved are not applied on close; the last saved/loaded version is.
 
 | Input | Action |
 |---|---|
-| `/` | open / close the editor (rebindable) |
+| `Backspace` | **Open Panel** / close it; opening needs unchanged coordinates and no airborne state (rebindable) |
 | `Bones` / `Poses` tabs | switch the left panel between the mannequin and saved poses |
 | click a part on the mannequin | choose what you are editing (head, torso, arms, forearms, legs, shins, cape) |
 | `1`–`9` | same as clicking the mannequin (rows in the classic order; cape is click-only) |
@@ -78,6 +79,22 @@ to ±180° and ±2 blocks per axis.
   different model and is not posed by this mod.
 - Armor is rendered with separate (single-piece) arm and leg models, so it does not
   follow a bent elbow or knee. Poses with bent limbs look best without armor.
+
+## Compatibility warnings
+
+The editor shows a **COMPAT** badge (hover it for the full list) when something else
+can override the player rig:
+
+- **EMF / OptiFine player CEM** (for example Fresh Animations: Player Extension)
+  replaces the player model and its animations, so poses will not show. Disable that
+  pack or the EMF player model while posing.
+- **Player Animator**, **Not Enough Animations**, **Emotecraft**, **Figura** and
+  **Physics Mod** can overwrite bone rotations, emulate a pose, or replace the player
+  model.
+- **Cape / wavey-cape mods** can overwrite the cape bone.
+- **3D Skin Layers** is handled by the compat hook, but its second-layer bending is
+  only partial.
+- Armor and elytra always use separate models (see above).
 
 ## How poses are stored
 
@@ -154,15 +171,13 @@ curves like a skinned mesh instead of breaking in two.
 
 ## Notes
 
-- **The default key `/` clashes with vanilla's _Open Command_.** With both bound to `/`,
-  opening chat and the editor fight; rebind this mod in *Controls* if that gets in the
-  way.
+- **Open Panel** is bound to **Backspace** by default; rebind it under *Controls → Cheese*.
 - This is a **visual, client-side** mod: your pose is not authoritative, does not move
   your hitbox, and is invisible to other players.
 - Poses are matched by player **name**, so a pose saved for one name does not apply to
   another.
-- Clicking a pose in the **Poses** tab is a save, not just a preview: it binds that pose
-  to your name and unbinds the previous one.
+- Clicking a pose in the **Poses** tab only selects it (amber frame). Press **Load** to
+  apply it; the previously loaded pose keeps its blue shading until then.
 - Armor and elytra are separate models; see [What you can pose](#what-you-can-pose).
 - Unknown terrain: the gizmo's vertical centring constant has been reasoned out of the
   render pipeline but not verified by eye in game.

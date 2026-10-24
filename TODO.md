@@ -22,6 +22,11 @@ Implemented:
   badge) plus a bottom hint strip; nothing is painted over the model.
 - Bones tab is a small clickable mannequin: head, torso, upper/lower arms, upper/lower
   legs, plus a Cape button. Hover shows the part name; the selected part is framed.
+- The editor only opens when the player is still: coordinates unchanged on the last
+  tick, supported by ground/water/a ladder/a vehicle rather than airborne.
+- Compatibility warnings: a COMPAT badge lists detected overrides (EMF/OptiFine player
+  CEM, Player Animator, Not Enough Animations, Emotecraft, Figura, Physics Mod, cape
+  mods, 3D Skin Layers).
 - Save, rename-on-save, delete, New, Load, reset row, reset all, unload/apply.
 - Saved-pose list with scrolling; blue shading marks the loaded pose and an amber frame
   marks the pose being edited. Selecting another pose does not unload the blue one;

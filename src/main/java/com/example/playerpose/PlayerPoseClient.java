@@ -92,11 +92,46 @@ public class PlayerPoseClient implements ClientModInitializer {
         return minecraft.gui.screen();
     }
 
+    /**
+     * The editor pauses the world, so opening it mid-step would freeze the player in
+     * a walking pose and apply the pose to a model that is still animating. "Still"
+     * means the coordinates did not change on the last tick and the player has
+     * something under them: ground, water/lava, a ladder or a vehicle. Jumping,
+     * falling and flying count as airborne and are rejected.
+     */
+    public static boolean isLocalPlayerStill(Minecraft mc) {
+        if (mc == null || mc.player == null) return false;
+        var player = mc.player;
+        double dx = player.getX() - player.xOld;
+        double dy = player.getY() - player.yOld;
+        double dz = player.getZ() - player.zOld;
+        if (dx * dx + dy * dy + dz * dz > 1.0E-6) {
+            PoseLog.info("still: moving dx=%.5f dy=%.5f dz=%.5f", dx, dy, dz);
+            return false;
+        }
+        boolean supported = player.onGround()
+            || player.isInWater()
+            || player.isInLava()
+            || player.onClimbable()
+            || player.isPassenger();
+        if (!supported) {
+            PoseLog.info("still: airborne (ground=%s water=%s lava=%s climb=%s passenger=%s)",
+                player.onGround(), player.isInWater(), player.isInLava(),
+                player.onClimbable(), player.isPassenger());
+        }
+        return supported;
+    }
+
     public static void openPoseEditor() {
         if (poseEditorOpen) return;
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) {
             LOGGER.warn("Cannot open editor: no player");
+            return;
+        }
+        if (!isLocalPlayerStill(mc)) {
+            mc.player.sendOverlayMessage(Component.translatable("playerpose.overlay.standStill"));
+            PoseLog.info("editor open blocked: player is still moving");
             return;
         }
         String skin = getLocalPlayerSkinString(mc);

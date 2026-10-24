@@ -6,6 +6,7 @@ import com.example.playerpose.pose.LayerBends;
 import com.example.playerpose.pose.Pose;
 import com.example.playerpose.pose.PoseBone;
 import com.example.playerpose.pose.PoseLimbs;
+import com.example.playerpose.pose.PoseModelAccess;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.model.geom.ModelPart;
@@ -38,7 +39,7 @@ import java.util.WeakHashMap;
  * for its bend point.</p>
  */
 @Mixin(HumanoidModel.class)
-public abstract class PoseModelMixin {
+public abstract class PoseModelMixin implements PoseModelAccess {
 
     /**
      * Rest pivots of the humanoid parts, in model units (16 per block, +Y down).
@@ -73,6 +74,15 @@ public abstract class PoseModelMixin {
         at = @At("TAIL")
     )
     private void playerpose$applyPose(HumanoidRenderState state, CallbackInfo ci) {
+        playerpose$applyPoseInternal(state);
+    }
+
+    @Override
+    public void playerpose$applyPoseAgain(HumanoidRenderState state) {
+        playerpose$applyPoseInternal(state);
+    }
+
+    private void playerpose$applyPoseInternal(HumanoidRenderState state) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
         if (!(state instanceof AvatarRenderState avatar) || avatar.id != mc.player.getId()) return;
@@ -112,10 +122,11 @@ public abstract class PoseModelMixin {
             double dy = bone.ty;
             double dz = bone.tz;
 
-            if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) > 1.0E-4) {
-                float[] rest = restFor(part, index);
-                part.setPos(rest[0] + (float) dx, rest[1] + (float) dy, rest[2] + (float) dz);
-            }
+            // Always restore the rest position before adding the pose translation.
+            // Animation mods (EMF/Fresh Animations) may have moved the same part
+            // after our first pass; resetting here makes the pose the last writer.
+            float[] rest = restFor(part, index);
+            part.setPos(rest[0] + (float) dx, rest[1] + (float) dy, rest[2] + (float) dz);
 
             if (bodyModel) registerLayerBend(bone.bone, rx, ry, rz, dx, dy, dz);
         }
@@ -163,7 +174,6 @@ public abstract class PoseModelMixin {
             ty = (float) bone.ty;
             tz = (float) bone.tz;
         }
-
         for (int i = 0; i < PoseLimbs.SLICES; i++) {
             ModelPart first = child(limb, firstBase + i);
             if (first != null) deformSlice(first, centerX, seam, rx, ry, rz, tx, ty, tz);

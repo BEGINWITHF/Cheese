@@ -1,6 +1,7 @@
 package com.example.playerpose.screen;
 
 import com.example.playerpose.PlayerPoseClient;
+import com.example.playerpose.compat.PoseCompat;
 import com.example.playerpose.pose.Pose;
 import com.example.playerpose.pose.PoseBone;
 import com.example.playerpose.pose.PoseLog;
@@ -119,6 +120,10 @@ public class PoseEditorScreen extends Screen {
 
     private String statusMsg = "";
     private long statusUntil;
+    /** Detected mods/resource packs that can override the player rig. */
+    private List<Component> compatWarnings = new ArrayList<>();
+    private boolean compatLogged;
+    private int compatX0, compatY0, compatX1, compatY1;
     private List<String> savedPoseNames = new ArrayList<>();
     /** 0 = bone list, 1 = saved-pose list. */
     private int listTab;
@@ -660,6 +665,13 @@ public class PoseEditorScreen extends Screen {
 
         PlayerPoseClient.setEditorPreviewPose(workingPose);
         refreshPoseList();
+        compatWarnings = PoseCompat.warnings(Minecraft.getInstance());
+        if (!compatLogged) {
+            compatLogged = true;
+            for (Component warning : compatWarnings) {
+                PoseLog.warn("compat: %s", warning.getString());
+            }
+        }
     }
 
     /** Save/Done stay; the other four actions follow the active list tab. */
@@ -754,6 +766,12 @@ public class PoseEditorScreen extends Screen {
 
         // On top of the widgets, so the group border and the mode marker stay visible.
         drawModeGroup(graphics);
+
+        if (!compatWarnings.isEmpty() && compatX1 > compatX0
+            && isOver(mouseX, mouseY, compatX0, compatY0,
+                compatX1 - compatX0, compatY1 - compatY0)) {
+            graphics.setComponentTooltipForNextFrame(font, compatWarnings, mouseX, mouseY);
+        }
     }
 
     private void drawViewport(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
@@ -785,21 +803,46 @@ public class PoseEditorScreen extends Screen {
         graphics.text(font, Component.literal(hint), vpX0 + 4, vpY1 - 12, 0xFF888899);
     }
 
-    /** Selected bone, mode, unsaved badge and axis read-out, above the viewport. */
+    /** Selected bone, mode, compat/unsaved badges and axis read-out, above the viewport. */
     private void drawTopInfo(GuiGraphicsExtractor graphics, Font font) {
         panel(graphics, vpX0, INFO_Y, vpX1, INFO_Y + INFO_H);
         int maxW = vpX1 - vpX0 - 8;
 
+        boolean unsaved = workingPose == null || workingPose.getName() == null
+            || workingPose.getName().isBlank();
+        Component unsavedLabel = Component.translatable("playerpose.unsavedBadge");
+        Component compatLabel = Component.translatable("playerpose.compat.badge");
+        int compatW = compatWarnings.isEmpty() ? 0 : font.width(compatLabel) + 6;
+        int reserved = (unsaved ? font.width(unsavedLabel) + 4 : 0)
+            + (compatW > 0 ? compatW + 4 : 0);
+
         Component mode = Component.translatable(moveMode ? "playerpose.modeMove" : "playerpose.modeRotate");
         String selectedLine = itemLabel(selected).getString() + "  [" + mode.getString() + "]";
-        graphics.text(font, Component.literal(font.plainSubstrByWidth(selectedLine, maxW)),
+        int textW = Math.max(32, maxW - reserved);
+        graphics.text(font, Component.literal(font.plainSubstrByWidth(selectedLine, textW)),
             vpX0 + 4, INFO_Y + 3, 0xFFFFFFFF);
 
-        if (workingPose == null || workingPose.getName() == null || workingPose.getName().isBlank()) {
-            Component unsaved = Component.translatable("playerpose.unsavedBadge");
-            if (font.width(selectedLine) + font.width(unsaved) + 16 < maxW) {
-                graphics.text(font, unsaved, vpX1 - 4 - font.width(unsaved),
-                    INFO_Y + 3, 0xFFFFC24A);
+        int badgeRight = vpX1 - 4;
+        if (compatW > 0) {
+            int x = badgeRight - compatW;
+            boolean blink = warnBlink();
+            graphics.fill(x, INFO_Y + 2, badgeRight, INFO_Y + 12,
+                blink ? 0x55FFC24A : 0x22FFC24A);
+            graphics.text(font, compatLabel, x + 3, INFO_Y + 3,
+                blink ? 0xFFFFC24A : 0xFF7A5A1A);
+            compatX0 = x;
+            compatY0 = INFO_Y + 2;
+            compatX1 = badgeRight;
+            compatY1 = INFO_Y + 12;
+            badgeRight = x - 4;
+        } else {
+            compatX0 = 0;
+            compatX1 = 0;
+        }
+        if (unsaved) {
+            int x = badgeRight - font.width(unsavedLabel);
+            if (x > vpX0 + 4) {
+                graphics.text(font, unsavedLabel, x, INFO_Y + 3, 0xFFFFC24A);
             }
         }
 
@@ -1116,11 +1159,23 @@ public class PoseEditorScreen extends Screen {
         if (!statusMsg.isEmpty() && System.currentTimeMillis() < statusUntil) {
             graphics.text(font, Component.literal(font.plainSubstrByWidth(statusMsg, width - 16)),
                 LEFT_X, y, 0xFFFFFF88);
+        } else if (!compatWarnings.isEmpty()) {
+            String warn = "[!] " + compatWarnings.get(0).getString();
+            if (compatWarnings.size() > 1) {
+                warn += " (+" + (compatWarnings.size() - 1) + ")";
+            }
+            graphics.text(font, Component.literal(font.plainSubstrByWidth(warn, width - 16)),
+                LEFT_X, y, warnBlink() ? 0xFFFFC24A : 0xFF7A5A1A);
         } else {
             String hint = font.plainSubstrByWidth(
                 Component.translatable("playerpose.hint").getString(), width - 16);
             graphics.text(font, Component.literal(hint), LEFT_X, y, 0xFF888888);
         }
+    }
+
+    /** Slow attention blink for compatibility warnings. */
+    private static boolean warnBlink() {
+        return (System.currentTimeMillis() / 450L) % 2L == 0L;
     }
 
     private static boolean isOver(int mouseX, int mouseY, int x, int y, int w, int h) {
