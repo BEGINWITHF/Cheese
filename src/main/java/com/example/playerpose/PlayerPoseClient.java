@@ -10,8 +10,14 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class PlayerPoseClient implements ClientModInitializer {
 
@@ -48,6 +54,19 @@ public class PlayerPoseClient implements ClientModInitializer {
      * the pose map (which used to snap to an arbitrary entry).
      */
     private static String activePoseName;
+
+    /**
+     * Poses loaded onto other players on this client. The server never sees these;
+     * each renderer resolves the pose by entity id. A null entry means the player
+     * shows their normal pose.
+     */
+    private static final Map<UUID, Pose> remotePoses = new ConcurrentHashMap<>();
+
+    /** Explicit "no local pose", even if the local skin still has one bound. */
+    private static boolean localPoseCleared;
+
+    /** Clear remote targets when the client changes world/server. */
+    private static Object lastLevel;
 
     @Override
     public void onInitializeClient() {
@@ -93,33 +112,49 @@ public class PlayerPoseClient implements ClientModInitializer {
     }
 
     /**
-     * The editor pauses the world, so opening it mid-step would freeze the player in
-     * a walking pose and apply the pose to a model that is still animating. "Still"
-     * means the coordinates did not change on the last tick and the player has
-     * something under them: ground, water/lava, a ladder or a vehicle. Jumping,
-     * falling and flying count as airborne and are rejected.
+     * Why the player may not open the editor, or null when opening is allowed.
+     * The editor pauses the world, so it only opens while the player is standing
+     * completely still and upright on solid ground. Water, lava, ladders,
+     * vehicles (boats, minecarts, ...), elytra, swimming, sneaking, crawling and
+     * sleeping are all rejected even when not moving.
      */
-    public static boolean isLocalPlayerStill(Minecraft mc) {
-        if (mc == null || mc.player == null) return false;
+    public static String localPlayerStillBlockReason(Minecraft mc) {
+        if (mc == null || mc.player == null) {
+            return "playerpose.overlay.standStill";
+        }
         var player = mc.player;
         double dx = player.getX() - player.xOld;
         double dy = player.getY() - player.yOld;
         double dz = player.getZ() - player.zOld;
         if (dx * dx + dy * dy + dz * dz > 1.0E-6) {
             PoseLog.info("still: moving dx=%.5f dy=%.5f dz=%.5f", dx, dy, dz);
-            return false;
+            return "playerpose.overlay.standStill";
         }
-        boolean supported = player.onGround()
-            || player.isInWater()
-            || player.isInLava()
-            || player.onClimbable()
-            || player.isPassenger();
-        if (!supported) {
-            PoseLog.info("still: airborne (ground=%s water=%s lava=%s climb=%s passenger=%s)",
-                player.onGround(), player.isInWater(), player.isInLava(),
-                player.onClimbable(), player.isPassenger());
+        boolean standing = player.getPose() == net.minecraft.world.entity.Pose.STANDING
+            && player.onGround()
+            && !player.isInWater()
+            && !player.isInLava()
+            && !player.onClimbable()
+            && !player.isPassenger()
+            && !player.isFallFlying()
+            && !player.isSwimming()
+            && !player.isCrouching()
+            && !player.isVisuallyCrawling()
+            && !player.isSleeping();
+        if (!standing) {
+            PoseLog.info("still: not standing (pose=%s ground=%s water=%s lava=%s climb=%s "
+                    + "passenger=%s elytra=%s swim=%s sneak=%s crawl=%s sleep=%s)",
+                player.getPose(), player.onGround(), player.isInWater(), player.isInLava(),
+                player.onClimbable(), player.isPassenger(), player.isFallFlying(),
+                player.isSwimming(), player.isCrouching(), player.isVisuallyCrawling(),
+                player.isSleeping());
+            return "playerpose.overlay.standOnGround";
         }
-        return supported;
+        return null;
+    }
+
+    public static boolean isLocalPlayerStill(Minecraft mc) {
+        return localPlayerStillBlockReason(mc) == null;
     }
 
     public static void openPoseEditor() {
@@ -129,28 +164,20 @@ public class PlayerPoseClient implements ClientModInitializer {
             LOGGER.warn("Cannot open editor: no player");
             return;
         }
-        if (!isLocalPlayerStill(mc)) {
-            mc.player.sendOverlayMessage(Component.translatable("playerpose.overlay.standStill"));
-            PoseLog.info("editor open blocked: player is still moving");
+        String blocked = localPlayerStillBlockReason(mc);
+        if (blocked != null) {
+            mc.player.sendOverlayMessage(Component.translatable(blocked));
+            PoseLog.info("editor open blocked: %s", blocked);
             return;
         }
         String skin = getLocalPlayerSkinString(mc);
         PoseManager mgr = getPoseManager();
 
-        // Re-opening must show the pose you last loaded, not an arbitrary one: the
-        // active pose wins, and the skin lookup is only the initial fallback.
-        Pose existing = activePoseName == null ? null : mgr.get(activePoseName);
-        if (existing != null) {
-            PoseLog.info("editor open: skin='%s' keeping active pose '%s'", skin, activePoseName);
-        } else {
-            existing = mgr.findForSkin(skin);
-            activePoseName = existing == null ? null : existing.getName();
-            PoseLog.info("editor open: skin='%s' matched pose %s", skin,
-                existing == null ? "none (starting empty)" : "'" + activePoseName + "'");
-        }
+        // Open on the clean home view: no pose is selected automatically. The player
+        // presses New, or picks a saved pose from the list. This keeps opening the
+        // panel from silently editing/renaming whatever was last active.
         PoseLog.dumpPoses(mgr, "editor open");
-
-        mc.gui.setScreen(new PoseEditorScreen(mgr, existing, skin));
+        mc.gui.setScreen(new PoseEditorScreen(mgr, null, skin));
         poseEditorOpen = true;
         LOGGER.info("Opened pose editor for skin: {}", skin);
     }
@@ -194,6 +221,10 @@ public class PlayerPoseClient implements ClientModInitializer {
             logApplied(null, "poses unloaded");
             return null;
         }
+        if (localPoseCleared) {
+            logApplied(null, "local target unchecked");
+            return null;
+        }
         PoseManager mgr = getPoseManager();
         if (mgr == null) return null;
 
@@ -218,6 +249,80 @@ public class PlayerPoseClient implements ClientModInitializer {
         return bySkin;
     }
 
+    /**
+     * Resolve the pose for any player render state. Local players keep the editor
+     * preview / active-pose behaviour; other players use the explicitly loaded
+     * target map, then the "all players" pose.
+     */
+    public static Pose resolvePoseForEntity(Minecraft mc, int entityId) {
+        clearRemotePosesOnWorldChange();
+        if (mc == null || mc.player == null || mc.level == null) return null;
+
+        Entity entity = mc.level.getEntity(entityId);
+        if (!(entity instanceof Player player)) return null;
+        if (mc.player != null && player.getUUID().equals(mc.player.getUUID())) {
+            return resolvePoseForLocalPlayer(mc);
+        }
+
+        if (!posesEnabled) return null;
+        return remotePoses.get(player.getUUID());
+    }
+
+    /** Load a pose onto one connected player (client-side only). */
+    public static void applyRemotePose(UUID playerId, Pose pose) {
+        if (playerId == null || pose == null) return;
+        clearRemotePosesOnWorldChange();
+        remotePoses.put(playerId, PoseManager.copy(pose));
+    }
+
+    public static void clearRemotePose(UUID playerId) {
+        if (playerId != null) remotePoses.remove(playerId);
+    }
+
+    public static boolean hasRemotePose(UUID playerId, String poseName) {
+        if (playerId == null || poseName == null) return false;
+        Pose p = remotePoses.get(playerId);
+        return p != null && poseName.equals(p.getName());
+    }
+
+    /** Name of the pose a remote player currently carries, or null. */
+    public static String getRemotePoseName(UUID playerId) {
+        if (playerId == null) return null;
+        Pose p = remotePoses.get(playerId);
+        return p == null ? null : p.getName();
+    }
+
+    /** Name of the pose any player (including self) currently carries, or null. */
+    public static String getPoseName(UUID playerId) {
+        if (playerId == null) return null;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc != null && mc.player != null && playerId.equals(mc.player.getUUID())) {
+            return localPoseCleared ? null : activePoseName;
+        }
+        return getRemotePoseName(playerId);
+    }
+
+    /** Clear all remote targets (world change / disconnect). */
+    public static void clearRemotePoses() {
+        remotePoses.clear();
+    }
+
+    /** Unload the local pose and every client-side remote pose. */
+    public static void unloadAllPoses() {
+        clearLocalPose();
+        remotePoses.clear();
+        posesEnabled = false;
+    }
+
+    private static void clearRemotePosesOnWorldChange() {
+        Minecraft mc = Minecraft.getInstance();
+        Object level = mc == null ? null : mc.level;
+        if (level != lastLevel) {
+            lastLevel = level;
+            clearRemotePoses();
+        }
+    }
+
     /** Last pose name written to the log, so the per-frame apply path stays quiet. */
     private static String lastAppliedLogged;
 
@@ -230,7 +335,28 @@ public class PlayerPoseClient implements ClientModInitializer {
 
     public static String getActivePoseName() { return activePoseName; }
 
-    public static void setActivePoseName(String name) { activePoseName = name; }
+    public static void setActivePoseName(String name) {
+        activePoseName = name;
+        if (name != null) localPoseCleared = false;
+    }
+
+    public static boolean hasLocalPose(String poseName) {
+        return !localPoseCleared && poseName != null && poseName.equals(activePoseName);
+    }
+
+    public static boolean isLocalPoseCleared() {
+        return localPoseCleared;
+    }
+
+    public static void applyLocalPose(String poseName) {
+        activePoseName = poseName;
+        localPoseCleared = false;
+    }
+
+    public static void clearLocalPose() {
+        activePoseName = null;
+        localPoseCleared = true;
+    }
 
     public static boolean arePosesEnabled() { return posesEnabled; }
 
