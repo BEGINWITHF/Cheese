@@ -10,10 +10,11 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.client.renderer.entity.EntityRenderer;
 import net.minecraft.client.renderer.entity.state.EntityRenderState;
 import net.minecraft.client.renderer.entity.state.LivingEntityRenderState;
@@ -23,8 +24,12 @@ import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.UUID;
 
 /**
  * Blender-style bone posture editor.
@@ -106,12 +111,24 @@ public class PoseEditorScreen extends Screen {
     private double rotX, rotY, rotZ;            // radians
     private double tX, tY, tZ;                  // model units
 
-    private EditBox nameBox;
+    /** Saved name of the working pose, used to detect a rename on Save. */
+    private String originalName;
+    /** False until New or a saved pose is picked: the panel opens on a clean home view. */
+    private boolean editingPose;
+
+    /** Simple in-screen rename/new-name dialog (no direct typing in the name bar). */
+    private boolean nameDialogOpen;
+    private String nameDialogText = "";
+    private boolean nameDialogForNew;
+    private int nameDialogX0, nameDialogY0, nameDialogX1, nameDialogY1;
+    private int nameDialogOkX0, nameDialogOkY0, nameDialogOkX1, nameDialogOkY1;
+    private int nameDialogCancelX0, nameDialogCancelY0, nameDialogCancelX1, nameDialogCancelY1;
+
     private Button newBtn;
+    private Button saveBtn;
     private Button resetBtn;
     private Button resetAllBtn;
     private Button deleteBtn;
-    private Button loadBtn;
     private Button unloadBtn;
     private Button rotateBtn;
     private Button moveBtn;
@@ -129,6 +146,30 @@ public class PoseEditorScreen extends Screen {
     private int listTab;
     /** Scroll offset of the active tab's list, in rows. */
     private int listScroll;
+
+    // Load-to popup
+    private static final int LOAD_SELF = 0;
+    private static final int LOAD_PLAYER = 1;
+    private static final int LOAD_MENU_ROW_H = 12;
+    private static final int LOAD_MENU_TITLE_H = 14;
+    private static final int LOAD_MENU_FOOTER_H = 20;
+
+    private record LoadTarget(int kind, UUID id, String name) {}
+
+    private boolean loadMenuOpen;
+    private int loadMenuScroll;
+    private String loadPoseName;
+    private Pose loadPose;
+    private List<LoadTarget> loadTargets = new ArrayList<>();
+    private int loadMenuX0, loadMenuY0, loadMenuX1, loadMenuY1;
+    private int loadMenuTargetsY0;
+    private int loadMenuVisibleRows;
+    private int loadMenuAllY0, loadMenuAllY1;
+    private int loadMenuCloseX0, loadMenuCloseY0, loadMenuCloseX1, loadMenuCloseY1;
+
+    /** Clicking empty space in the Bones panel hides the selection frame and gizmo. */
+    private boolean gizmoVisible = true;
+    private boolean selectionVisible = true;
 
     // Viewport / camera
     private int vpX0, vpY0, vpX1, vpY1;
@@ -163,14 +204,22 @@ public class PoseEditorScreen extends Screen {
         super(Component.translatable("screen.playerpose.editor"));
         this.poseManager = mgr;
         this.skin = skinStr;
+        // Opening the panel is a clean home view: nothing is selected, so no pose
+        // can be edited or renamed by accident. New (or picking a saved pose) starts
+        // editing. The Poses tab is shown by default.
+        this.listTab = 1;
         if (existing != null) {
-            // Edit a copy: the manager keeps the last saved pose until Save is pressed,
-            // so closing the editor without saving cannot silently apply draft edits.
             this.workingPose = PoseManager.copy(existing);
+            this.editingPose = true;
+            this.originalName = existing.getName();
         } else {
             this.workingPose = new Pose();
             this.workingPose.setName("");
             this.workingPose.setSkin(skinStr);
+            this.editingPose = false;
+            // No pose is being edited yet: no selection frame and no gizmo.
+            this.selectionVisible = false;
+            this.gizmoVisible = false;
         }
         syncFromPose();
     }
@@ -213,6 +262,8 @@ public class PoseEditorScreen extends Screen {
     private void selectRow(String row) {
         setTab(0);
         selected = row;
+        selectionVisible = true;
+        gizmoVisible = true;
         syncFromPose();
         ensureRowVisible(ROWS.indexOf(row));
     }
@@ -259,7 +310,6 @@ public class PoseEditorScreen extends Screen {
         boolean hasWorkingPose = workingPose != null && workingPose.getName() != null
             && !workingPose.getName().isBlank();
         if (deleteBtn != null) deleteBtn.active = hasWorkingPose;
-        if (loadBtn != null) loadBtn.active = hasWorkingPose;
     }
 
     /** Scroll the Pose tab so the pose being edited is on screen. */
@@ -293,46 +343,357 @@ public class PoseEditorScreen extends Screen {
         // The editor works on a copy, so later edits stay drafts until Save.
         workingPose = PoseManager.copy(p);
         PlayerPoseClient.setEditorPreviewPose(workingPose);
-        if (nameBox != null) nameBox.setValue(p.getName() == null ? "" : p.getName());
+        editingPose = true;
+        originalName = p.getName();
         selected = "body";
         syncFromPose();
         refreshPoseList();
         setTab(1);
         ensureWorkingPoseVisible();
+        updateActionButtons();
         setStatus(Component.translatable("playerpose.status.selected", name));
         String active = PlayerPoseClient.getActivePoseName();
         PoseLog.info("list: selected '%s' (editing only; loaded=%s)", name,
             active == null ? "none" : "'" + active + "'");
     }
 
-    /** Bind the pose shown in the editor to this skin and make it the active one. */
-    private void loadPose() {
-        if (workingPose == null || workingPose.getName() == null || workingPose.getName().isBlank()) {
-            setStatus(Component.translatable("playerpose.status.noPoseToLoad"));
+    /** Open the target chooser; Load itself no longer assumes the local player. */
+    /** Open the multi-target panel for one saved pose. */
+    private void openLoadMenu(String poseName) {
+        Pose pose = poseManager == null ? null : poseManager.get(poseName);
+        if (pose == null) return;
+
+        List<LoadTarget> targets = new ArrayList<>();
+        targets.add(new LoadTarget(LOAD_SELF, null, ""));
+
+        Minecraft mc = Minecraft.getInstance();
+        UUID self = mc.player == null ? null : mc.player.getUUID();
+        if (mc.getConnection() != null) {
+            List<LoadTarget> players = new ArrayList<>();
+            for (PlayerInfo info : mc.getConnection().getOnlinePlayers()) {
+                if (info == null || info.getProfile() == null
+                    || info.getProfile().id() == null) continue;
+                UUID id = info.getProfile().id();
+                if (id.equals(self)) continue;
+                String name = info.getProfile().name();
+                if (name == null || name.isBlank()) name = id.toString();
+                players.add(new LoadTarget(LOAD_PLAYER, id, name));
+            }
+            players.sort(Comparator.comparing(LoadTarget::name, String.CASE_INSENSITIVE_ORDER));
+            targets.addAll(players);
+        }
+
+        loadPoseName = poseName;
+        loadPose = PoseManager.copy(pose);
+        loadTargets = targets;
+        loadMenuScroll = 0;
+        loadMenuOpen = true;
+    }
+
+    private String targetLabel(LoadTarget target) {
+        return target.kind == LOAD_SELF
+            ? Component.translatable("playerpose.loadTarget.self").getString()
+            : target.name;
+    }
+
+    private boolean targetHasPose(LoadTarget target) {
+        if (loadPoseName == null) return false;
+        return target.kind == LOAD_SELF
+            ? PlayerPoseClient.hasLocalPose(loadPoseName)
+            : PlayerPoseClient.hasRemotePose(target.id, loadPoseName);
+    }
+
+    /** Pose a target currently carries, whichever pose it is, or null. */
+    private String targetPoseName(LoadTarget target) {
+        return target.kind == LOAD_SELF
+            ? (PlayerPoseClient.isLocalPoseCleared() ? null : PlayerPoseClient.getActivePoseName())
+            : PlayerPoseClient.getRemotePoseName(target.id);
+    }
+
+    private void setTargetPose(LoadTarget target, boolean enabled) {
+        if (target == null || loadPose == null || loadPoseName == null) return;
+        if (target.kind == LOAD_SELF) {
+            if (enabled) {
+                PlayerPoseClient.applyLocalPose(loadPoseName);
+            } else if (PlayerPoseClient.hasLocalPose(loadPoseName)) {
+                PlayerPoseClient.clearLocalPose();
+            }
             return;
         }
-        lastDeletedName = null;
-        commit();
-        String name = workingPose.getName();
-        workingPose.setSkin(skin);
-        poseManager.bind(workingPose);
+
+        if (enabled) {
+            PlayerPoseClient.applyRemotePose(target.id, loadPose);
+        } else {
+            PlayerPoseClient.clearRemotePose(target.id);
+        }
+    }
+
+    private void toggleTarget(LoadTarget target) {
+        boolean enabling = !targetHasPose(target);
+        String previous = targetPoseName(target);
+        setTargetPose(target, enabling);
+        if (enabling && previous != null && !previous.equals(loadPoseName)) {
+            // One pose per player: checking this pose replaces whatever was there.
+            setStatus(Component.translatable("playerpose.status.poseReplaced",
+                targetLabel(target), previous, loadPoseName));
+        }
         if (!PlayerPoseClient.arePosesEnabled()) {
             PlayerPoseClient.setPosesEnabled(true);
-            refreshUnloadButton();
         }
-        PlayerPoseClient.setActivePoseName(name);
-        PlayerPoseClient.setEditorPreviewPose(workingPose);
-        refreshPoseList();
-        setStatus(Component.translatable("playerpose.status.loaded", name));
-        PoseLog.info("load: '%s' is now active for skin '%s'", name, skin);
+    }
+
+    private boolean allTargetsHavePose() {
+        if (loadTargets.isEmpty()) return false;
+        for (LoadTarget target : loadTargets) {
+            if (!targetHasPose(target)) return false;
+        }
+        return true;
+    }
+
+    private void toggleAllTargets() {
+        boolean enable = !allTargetsHavePose();
+        for (LoadTarget target : loadTargets) {
+            setTargetPose(target, enable);
+        }
+        if (!PlayerPoseClient.arePosesEnabled()) {
+            PlayerPoseClient.setPosesEnabled(true);
+        }
+    }
+
+    private int loadMenuMaxScroll() {
+        return Math.max(0, loadTargets.size() - loadMenuVisibleRows);
+    }
+
+    /** Target row under the cursor, as an index into loadTargets, or -1. */
+    private int loadMenuRowAt(int mouseX, int mouseY) {
+        if (!loadMenuOpen || loadMenuVisibleRows <= 0) return -1;
+        if (mouseX < loadMenuX0 || mouseX >= loadMenuX1
+            || mouseY < loadMenuTargetsY0 || mouseY >= loadMenuTargetsY0
+                + loadMenuVisibleRows * LOAD_MENU_ROW_H) return -1;
+        int row = (mouseY - loadMenuTargetsY0) / LOAD_MENU_ROW_H;
+        if (row < 0 || row >= loadMenuVisibleRows) return -1;
+        int index = loadMenuScroll + row;
+        return index >= 0 && index < loadTargets.size() ? index : -1;
+    }
+
+    private void drawLoadMenu(GuiGraphicsExtractor graphics, Font font, int mouseX, int mouseY) {
+        if (!loadMenuOpen) return;
+
+        int x0 = LEFT_X;
+        int x1 = LEFT_X + LEFT_W;
+        int anchorY = BTN_Y + BTN_ROW_H * 2 + CTRL_H + 4;
+        int maxRows = Math.max(1, Math.min(8,
+            (height - STATUS_H - 4 - anchorY - LOAD_MENU_TITLE_H
+                - LOAD_MENU_ROW_H - LOAD_MENU_FOOTER_H) / LOAD_MENU_ROW_H));
+        int rows = Math.min(maxRows, loadTargets.size());
+        int h = LOAD_MENU_TITLE_H + LOAD_MENU_ROW_H + rows * LOAD_MENU_ROW_H
+            + LOAD_MENU_FOOTER_H + 2;
+        int y0 = Math.min(anchorY, height - STATUS_H - 4 - h);
+        y0 = Math.max(4, y0);
+        int y1 = y0 + h;
+
+        loadMenuX0 = x0;
+        loadMenuX1 = x1;
+        loadMenuY0 = y0;
+        loadMenuY1 = y1;
+        loadMenuVisibleRows = rows;
+        loadMenuScroll = Math.max(0, Math.min(loadMenuScroll, loadMenuMaxScroll()));
+
+        graphics.fill(x0, y0, x1, y1, 0xF0181A22);
+        graphics.fill(x0, y0, x1, y0 + 1, 0xFF8891A0);
+        graphics.fill(x0, y1 - 1, x1, y1, 0xFF8891A0);
+        graphics.fill(x0, y0, x0 + 1, y1, 0xFF8891A0);
+        graphics.fill(x1 - 1, y0, x1, y1, 0xFF8891A0);
+
+        String title = "Load \"" + loadPoseName + "\" to";
+        graphics.text(font,
+            Component.literal(font.plainSubstrByWidth(title, LEFT_W - 8)),
+            x0 + 4, y0 + 3, 0xFFFFD48A);
+
+        // Fixed "select all" row. Its label flips to "Deselect all" once every
+        // target currently has this pose.
+        boolean all = allTargetsHavePose();
+        loadMenuAllY0 = y0 + LOAD_MENU_TITLE_H;
+        loadMenuAllY1 = loadMenuAllY0 + LOAD_MENU_ROW_H;
+        boolean allHover = isOver(mouseX, mouseY, x0 + 1, loadMenuAllY0,
+            x1 - x0 - 2, LOAD_MENU_ROW_H);
+        if (allHover) {
+            graphics.fill(x0 + 1, loadMenuAllY0, x1 - 1, loadMenuAllY1, 0x33FFD48A);
+        }
+        String allMarker = all ? "[x] " : "[ ] ";
+        graphics.text(font, Component.literal(allMarker),
+            x0 + 4, loadMenuAllY0 + 2, all ? 0xFF7FD46A : 0xFF8891A0);
+        graphics.text(font, Component.translatable(all
+                ? "playerpose.loadTarget.deselectAll"
+                : "playerpose.loadTarget.selectAll"),
+            x0 + 5 + font.width("[x] "), loadMenuAllY0 + 2, 0xFFFFD48A);
+
+        loadMenuTargetsY0 = loadMenuAllY1;
+        for (int row = 0; row < rows; row++) {
+            int index = loadMenuScroll + row;
+            if (index >= loadTargets.size()) break;
+            LoadTarget target = loadTargets.get(index);
+            int ry = loadMenuTargetsY0 + row * LOAD_MENU_ROW_H;
+            boolean selected = targetHasPose(target);
+            // A player carries at most one pose. If this target already has a
+            // different pose, show it here so this panel never looks free.
+            String otherPose = selected ? null : targetPoseName(target);
+            boolean hover = isOver(mouseX, mouseY, x0 + 1, ry, x1 - x0 - 2,
+                LOAD_MENU_ROW_H);
+            if (hover) {
+                graphics.fill(x0 + 1, ry, x1 - 1, ry + LOAD_MENU_ROW_H, 0x22FFD48A);
+            }
+            int color = otherPose != null ? 0xFFE0A24A
+                : target.kind == LOAD_SELF ? 0xFFB8E0FF : 0xFFE0E0E0;
+            String marker = selected ? "[x] " : otherPose != null ? "[~] " : "[ ] ";
+            int markerX = x0 + 4;
+            // Fixed width for all markers so names do not jitter when toggling.
+            int labelX = markerX + font.width("[x] ") + 1;
+            graphics.text(font, Component.literal(marker), markerX, ry + 2,
+                selected ? 0xFF7FD46A : otherPose != null ? 0xFFE0A24A : 0xFF8891A0);
+
+            // Keep the player name and the "already has another pose" suffix from
+            // overlapping: measure the marker first, then split the remaining width.
+            int labelMax = Math.max(8, x1 - 6 - labelX);
+            String suffix = otherPose == null ? "" : " (" + otherPose + ")";
+            int suffixMax = labelMax / 2;
+            if (font.width(suffix) > suffixMax) {
+                suffix = font.plainSubstrByWidth(suffix, suffixMax);
+            }
+            String label = font.plainSubstrByWidth(targetLabel(target),
+                Math.max(8, labelMax - font.width(suffix)));
+            graphics.text(font, Component.literal(label), labelX, ry + 2, color);
+            if (!suffix.isEmpty()) {
+                graphics.text(font, Component.literal(suffix),
+                    labelX + font.width(label), ry + 2, 0xFF9A7A4A);
+            }
+        }
+
+        if (loadTargets.size() > rows) {
+            int trackX = x1 - 4;
+            int trackTop = loadMenuTargetsY0;
+            int trackH = rows * LOAD_MENU_ROW_H;
+            graphics.fill(trackX, trackTop, trackX + 2, trackTop + trackH, 0x40FFFFFF);
+            int thumbH = Math.max(6, trackH * rows / Math.max(1, loadTargets.size()));
+            int thumbY = trackTop + (trackH - thumbH)
+                * loadMenuScroll / Math.max(1, loadMenuMaxScroll());
+            graphics.fill(trackX, thumbY, trackX + 2, thumbY + thumbH, 0xCCFFFFFF);
+        }
+
+        int footerTop = loadMenuTargetsY0 + rows * LOAD_MENU_ROW_H + 2;
+        loadMenuCloseX0 = x0 + 4;
+        loadMenuCloseY0 = footerTop;
+        loadMenuCloseX1 = x1 - 4;
+        loadMenuCloseY1 = footerTop + LOAD_MENU_FOOTER_H - 4;
+        boolean closeHover = isOver(mouseX, mouseY, loadMenuCloseX0, loadMenuCloseY0,
+            loadMenuCloseX1 - loadMenuCloseX0, loadMenuCloseY1 - loadMenuCloseY0);
+        graphics.fill(loadMenuCloseX0, loadMenuCloseY0, loadMenuCloseX1, loadMenuCloseY1,
+            closeHover ? 0xCC555566 : 0xAA333344);
+        Component closeLabel = Component.translatable("gui.done");
+        graphics.text(font, closeLabel,
+            loadMenuCloseX0 + ((loadMenuCloseX1 - loadMenuCloseX0)
+                - font.width(closeLabel)) / 2,
+            loadMenuCloseY0 + 4, 0xFFE0E0E0);
+    }
+
+    // ---- name bar / rename dialog ---------------------------------------
+
+    /** Read-only pose-name bar. Clicking it opens the rename dialog. */
+    private void drawNameBar(GuiGraphicsExtractor graphics, Font font, int mouseX, int mouseY) {
+        int x0 = LEFT_X;
+        int y0 = 6;
+        int x1 = LEFT_X + LEFT_W;
+        int y1 = y0 + CTRL_H;
+        boolean hover = editingPose && isOver(mouseX, mouseY, x0, y0, x1 - x0, CTRL_H);
+        int edge = hover ? 0xFFFFC24A : 0xFF8891A0;
+        graphics.fill(x0, y0, x1, y1, hover ? 0xFF2A2E3A : 0xFF12141B);
+        graphics.fill(x0, y0, x1, y0 + 1, edge);
+        graphics.fill(x0, y1 - 1, x1, y1, edge);
+        graphics.fill(x0, y0, x0 + 1, y1, edge);
+        graphics.fill(x1 - 1, y0, x1, y1, edge);
+
+        String name = workingPose == null || workingPose.getName() == null
+            ? "" : workingPose.getName();
+        boolean hasPose = editingPose && !name.isBlank();
+        Component hint = Component.translatable("playerpose.renameHint");
+        int hintW = hasPose ? font.width(hint) + 4 : 0;
+        String shown = hasPose ? name
+            : Component.translatable("playerpose.noPoseSelected").getString();
+        shown = font.plainSubstrByWidth(shown, LEFT_W - 12 - hintW);
+        graphics.text(font, Component.literal(shown), x0 + 5, y0 + 5,
+            hasPose ? 0xFFFFFFFF : 0xFF8891A0);
+        if (hasPose) {
+            graphics.text(font, hint, x1 - 4 - font.width(hint), y0 + 5,
+                hover ? 0xFFFFD48A : 0xFF7A8090);
+        }
+    }
+
+    /** Small modal for New and Rename: type here, never in the name bar. */
+    private void drawNameDialog(GuiGraphicsExtractor graphics, Font font, int mouseX, int mouseY) {
+        if (!nameDialogOpen) return;
+        nameDialogLayout();
+
+        graphics.fill(0, 0, width, height, 0x99000000);
+        graphics.fill(nameDialogX0, nameDialogY0, nameDialogX1, nameDialogY1, 0xFF181A22);
+        graphics.fill(nameDialogX0, nameDialogY0, nameDialogX1, nameDialogY0 + 1, 0xFF8891A0);
+        graphics.fill(nameDialogX0, nameDialogY1 - 1, nameDialogX1, nameDialogY1, 0xFF8891A0);
+        graphics.fill(nameDialogX0, nameDialogY0, nameDialogX0 + 1, nameDialogY1, 0xFF8891A0);
+        graphics.fill(nameDialogX1 - 1, nameDialogY0, nameDialogX1, nameDialogY1, 0xFF8891A0);
+
+        Component title = Component.translatable(nameDialogForNew
+            ? "playerpose.nameDialog.newTitle" : "playerpose.nameDialog.renameTitle");
+        graphics.text(font, title, nameDialogX0 + 10, nameDialogY0 + 8, 0xFFFFD48A);
+
+        int bx0 = nameDialogX0 + 10;
+        int by0 = nameDialogY0 + 24;
+        int bx1 = nameDialogX1 - 10;
+        int by1 = by0 + 20;
+        graphics.fill(bx0, by0, bx1, by1, 0xFF0A0B0F);
+        graphics.fill(bx0, by0, bx1, by0 + 1, 0xFF8891A0);
+        graphics.fill(bx0, by1 - 1, bx1, by1, 0xFF8891A0);
+        graphics.fill(bx0, by0, bx0 + 1, by1, 0xFF8891A0);
+        graphics.fill(bx1 - 1, by0, bx1, by1, 0xFF8891A0);
+        String shown = font.plainSubstrByWidth(nameDialogText, bx1 - bx0 - 8);
+        graphics.text(font, Component.literal(shown), bx0 + 4, by0 + 6, 0xFFFFFFFF);
+        if ((System.currentTimeMillis() / 500L) % 2L == 0L) {
+            int cx = bx0 + 4 + font.width(shown);
+            graphics.fill(cx, by0 + 4, cx + 1, by1 - 4, 0xFFFFFFFF);
+        }
+
+        boolean cancelHover = isOver(mouseX, mouseY, nameDialogCancelX0, nameDialogCancelY0,
+            nameDialogCancelX1 - nameDialogCancelX0, CTRL_H);
+        boolean okHover = isOver(mouseX, mouseY, nameDialogOkX0, nameDialogOkY0,
+            nameDialogOkX1 - nameDialogOkX0, CTRL_H);
+        graphics.fill(nameDialogCancelX0, nameDialogCancelY0, nameDialogCancelX1,
+            nameDialogCancelY1, cancelHover ? 0xCC555566 : 0xAA333344);
+        graphics.fill(nameDialogOkX0, nameDialogOkY0, nameDialogOkX1, nameDialogOkY1,
+            okHover ? 0xCC4F9A52 : 0xAA356B38);
+        Component cancel = Component.translatable("gui.cancel");
+        Component ok = Component.translatable("gui.ok");
+        graphics.text(font, cancel,
+            nameDialogCancelX0 + ((nameDialogCancelX1 - nameDialogCancelX0)
+                - font.width(cancel)) / 2,
+            nameDialogCancelY0 + 4, 0xFFE0E0E0);
+        graphics.text(font, ok,
+            nameDialogOkX0 + ((nameDialogOkX1 - nameDialogOkX0)
+                - font.width(ok)) / 2,
+            nameDialogOkY0 + 4, 0xFFFFFFFF);
     }
 
     // ---- actions ---------------------------------------------------------
 
     private void savePose() {
-        String name = nameBox == null ? "" : nameBox.getValue().trim();
+        if (!editingPose || workingPose == null) {
+            setStatus(Component.translatable("playerpose.status.pressNew"));
+            return;
+        }
+        String name = workingPose.getName() == null ? "" : workingPose.getName().trim();
         if (name.isEmpty()) {
-            setStatus(Component.translatable("playerpose.status.nameEmpty"));
+            openNameDialog(false);
+            return;
+        }
+        if (!name.equals(originalName) && poseManager.get(name) != null) {
+            setStatus(Component.translatable("playerpose.status.nameTaken", name));
             return;
         }
         // A successful save is a commit point: it also drops any pending "redo this
@@ -340,9 +701,9 @@ public class PoseEditorScreen extends Screen {
         lastDeletedName = null;
         commit();
 
-        // Editing the name box renames: the old file is removed rather than leaving a
-        // second copy behind under the old name.
-        String oldName = workingPose.getName();
+        // The name dialog changed the draft name: Save renames the stored file. The
+        // old file is removed rather than leaving a second copy behind.
+        String oldName = originalName;
         boolean renaming = oldName != null && !oldName.isBlank() && !oldName.equals(name);
         String activeBefore = PlayerPoseClient.getActivePoseName();
         boolean wasActive = oldName != null && oldName.equals(activeBefore);
@@ -355,6 +716,7 @@ public class PoseEditorScreen extends Screen {
         }
 
         workingPose.setName(name);
+        originalName = name;
         if (wasActive || loadNow) {
             workingPose.setSkin(skin);
             poseManager.bind(workingPose);
@@ -385,25 +747,92 @@ public class PoseEditorScreen extends Screen {
         }
     }
 
-    /** Start a fresh, unsaved pose. Nothing is applied until it is saved. */
+    /** New pose: ask for a name first, then start a fresh draft. */
     private void newPose() {
-        beginEdit();
-        workingPose = new Pose();
-        workingPose.setName("");
-        workingPose.setSkin(skin);
-        workingPose.setBones(new ArrayList<>());
-        if (nameBox != null) nameBox.setValue("");
-        PlayerPoseClient.setEditorPreviewPose(workingPose);
-        // A new draft does not unload whatever pose is currently in effect.
-        selected = "body";
-        setTab(0);
-        listScroll = 0;
-        moveMode = false;
-        refreshModeButtons();
-        syncFromPose();
-        refreshPoseList();
-        setStatus(Component.translatable("playerpose.status.newPose"));
-        PoseLog.info("new: blank pose started (nothing applied until saved)");
+        openNameDialog(true);
+    }
+
+    /** Open the small name dialog; used for both New and Rename. */
+    private void openNameDialog(boolean forNew) {
+        if (!forNew && !editingPose) {
+            setStatus(Component.translatable("playerpose.status.pressNew"));
+            return;
+        }
+        nameDialogForNew = forNew;
+        nameDialogText = forNew ? "" : (workingPose.getName() == null ? "" : workingPose.getName());
+        nameDialogOpen = true;
+    }
+
+    private void closeNameDialog() {
+        nameDialogOpen = false;
+        nameDialogText = "";
+    }
+
+    /** Apply the dialog: create a new draft, or rename the current draft. */
+    private void confirmNameDialog() {
+        String name = nameDialogText.trim();
+        if (name.isEmpty()) {
+            setStatus(Component.translatable("playerpose.status.nameEmpty"));
+            return;
+        }
+        boolean sameAsCurrent = !nameDialogForNew && originalName != null
+            && name.equals(originalName);
+        if (!sameAsCurrent && poseManager.get(name) != null) {
+            setStatus(Component.translatable("playerpose.status.nameTaken", name));
+            return;
+        }
+
+        if (nameDialogForNew) {
+            workingPose = new Pose();
+            workingPose.setName(name);
+            workingPose.setSkin(skin);
+            workingPose.setBones(new ArrayList<>());
+            originalName = "";
+            editingPose = true;
+            PlayerPoseClient.setEditorPreviewPose(workingPose);
+            selected = "body";
+            selectionVisible = true;
+            gizmoVisible = true;
+            listScroll = 0;
+            moveMode = false;
+            undoStack.clear();
+            redoStack.clear();
+            refreshModeButtons();
+            syncFromPose();
+            setTab(0);
+            refreshPoseList();
+            updateActionButtons();
+            setStatus(Component.translatable("playerpose.status.newPose", name));
+            PoseLog.info("new: blank pose '%s' started (nothing applied until saved)", name);
+        } else {
+            String old = originalName == null || originalName.isBlank()
+                ? "(unsaved)" : originalName;
+            workingPose.setName(name);
+            refreshPoseList();
+            setStatus(Component.translatable("playerpose.status.renameDraft", old, name));
+        }
+        closeNameDialog();
+    }
+
+    /** Geometry of the name dialog, recomputed on layout changes. */
+    private void nameDialogLayout() {
+        int w = Math.min(240, width - 20);
+        int h = 96;
+        nameDialogX0 = (width - w) / 2;
+        nameDialogY0 = (height - h) / 2;
+        nameDialogX1 = nameDialogX0 + w;
+        nameDialogY1 = nameDialogY0 + h;
+
+        int bw = (w - 30) / 2;
+        int by = nameDialogY1 - 28;
+        nameDialogCancelX0 = nameDialogX0 + 10;
+        nameDialogCancelY0 = by;
+        nameDialogCancelX1 = nameDialogCancelX0 + bw;
+        nameDialogCancelY1 = by + CTRL_H;
+        nameDialogOkX0 = nameDialogCancelX1 + 10;
+        nameDialogOkY0 = by;
+        nameDialogOkX1 = nameDialogOkX0 + bw;
+        nameDialogOkY1 = by + CTRL_H;
     }
 
     /**
@@ -433,9 +862,13 @@ public class PoseEditorScreen extends Screen {
         workingPose = new Pose();
         workingPose.setSkin(skin);
         PlayerPoseClient.setEditorPreviewPose(workingPose);
-        if (nameBox != null) nameBox.setValue("");
+        editingPose = false;
+        originalName = null;
+        selectionVisible = false;
+        gizmoVisible = false;
         selectRow("body");
         refreshPoseList();
+        updateActionButtons();
         setStatus(Component.translatable("playerpose.status.deleted", name));
         // The next snapshot describes the post-delete blank state. Redoing an undo of
         // this delete must remove the pose again, not just show an empty editor.
@@ -491,14 +924,18 @@ public class PoseEditorScreen extends Screen {
         workingPose = snap.pose();
         selected = snap.selected() == null ? "body" : snap.selected();
         PlayerPoseClient.setEditorPreviewPose(workingPose);
-        if (nameBox != null) {
-            nameBox.setValue(workingPose.getName() == null ? "" : workingPose.getName());
-        }
         syncFromPose();
         // Redoing the delete of a pose: remove the copy that undoing it re-saved. Keep
         // the name on the blank state so a later redo does the same again.
         String deleteOnRestore = snap.deleteOnRestore();
         boolean blank = workingPose.getName() == null || workingPose.getName().isBlank();
+        editingPose = !blank;
+        originalName = blank ? null : workingPose.getName();
+        if (!editingPose) {
+            selectionVisible = false;
+            gizmoVisible = false;
+        }
+        updateActionButtons();
         if (deleteOnRestore != null && blank) {
             poseManager.delete(deleteOnRestore);
             lastDeletedName = deleteOnRestore;
@@ -557,31 +994,18 @@ public class PoseEditorScreen extends Screen {
     }
 
     private Component unloadLabel() {
-        return Component.translatable(PlayerPoseClient.arePosesEnabled()
-            ? "playerpose.unloadBtn" : "playerpose.applyBtn");
+        return Component.translatable("playerpose.unloadAllBtn");
     }
 
     /**
-     * Unload poses (character goes back to its vanilla pose, files untouched) or
-     * re-apply them, which re-reads the pose files from disk.
+     * Unload every pose at once: the local player, all remote targets and the
+     * saved-pose preview. Pose files are untouched.
      */
-    private void toggleUnload() {
+    private void unloadAll() {
         lastDeletedName = null;
-        if (PlayerPoseClient.arePosesEnabled()) {
-            PlayerPoseClient.setPosesEnabled(false);
-            setStatus(Component.translatable("playerpose.status.unloaded"));
-        } else {
-            poseManager.load();
-            PlayerPoseClient.setPosesEnabled(true);
-            refreshPoseList();
-            setStatus(Component.translatable("playerpose.status.applied"));
-        }
-        refreshUnloadButton();
-    }
-
-    private void refreshUnloadButton() {
-        if (unloadBtn == null) return;
-        unloadBtn.setMessage(unloadLabel());
+        PlayerPoseClient.unloadAllPoses();
+        refreshPoseList();
+        setStatus(Component.translatable("playerpose.status.unloadedAll"));
     }
 
     private void resetRow() {
@@ -604,20 +1028,16 @@ public class PoseEditorScreen extends Screen {
         super.init();
         Font font = this.font;
 
-        nameBox = new EditBox(font, LEFT_X, 6, LEFT_W, CTRL_H, Component.empty());
-        nameBox.setHint(Component.translatable("playerpose.poseNameHint"));
-        nameBox.setMaxLength(32);
-        nameBox.setValue(workingPose != null && workingPose.getName() != null ? workingPose.getName() : "");
-        // No live rename here: the box is a rename field, applied when Save is pressed,
-        // so typing a new name cannot detach the pose from its file.
-        addRenderableWidget(nameBox);
+        // Name bar is drawn by us and is click-to-rename; there is no free-typing
+        // field here anymore.
 
         // Left sidebar: Save and Done are common; the active tab swaps the other four
         // buttons (Rotate/Move/Reset/Reset All on Bones, New/Delete/Unload on Poses).
         int col2 = LEFT_X + BTN_W + BTN_GAP;
 
-        addRenderableWidget(Button.builder(Component.translatable("playerpose.saveBtn"), b -> savePose())
-            .bounds(LEFT_X, BTN_Y, BTN_W, CTRL_H).build());
+        saveBtn = Button.builder(Component.translatable("playerpose.saveBtn"), b -> savePose())
+            .bounds(LEFT_X, BTN_Y, BTN_W, CTRL_H).build();
+        addRenderableWidget(saveBtn);
         addRenderableWidget(Button.builder(Component.translatable("gui.done"), b -> onClose())
             .bounds(col2, BTN_Y, BTN_W, CTRL_H).build());
 
@@ -645,16 +1065,11 @@ public class PoseEditorScreen extends Screen {
             .bounds(LEFT_X, BTN_Y + BTN_ROW_H, BTN_W, CTRL_H).build();
         deleteBtn = Button.builder(Component.translatable("playerpose.deleteBtn"), b -> deletePose())
             .bounds(col2, BTN_Y + BTN_ROW_H, BTN_W, CTRL_H).build();
-        // Load applies the selected pose without navigating away from the list.
-        loadBtn = Button.builder(Component.translatable("playerpose.loadBtn"), b -> loadPose())
+        unloadBtn = Button.builder(unloadLabel(), b -> unloadAll())
             .bounds(LEFT_X, BTN_Y + BTN_ROW_H * 2, BTN_W, CTRL_H).build();
-        unloadBtn = Button.builder(unloadLabel(), b -> toggleUnload())
-            .bounds(col2, BTN_Y + BTN_ROW_H * 2, BTN_W, CTRL_H).build();
         addRenderableWidget(newBtn);
         addRenderableWidget(deleteBtn);
-        addRenderableWidget(loadBtn);
         addRenderableWidget(unloadBtn);
-        refreshUnloadButton();
 
         updateActionButtons();
 
@@ -677,13 +1092,28 @@ public class PoseEditorScreen extends Screen {
     /** Save/Done stay; the other four actions follow the active list tab. */
     private void updateActionButtons() {
         boolean bones = listTab == 0;
-        if (rotateBtn != null) rotateBtn.visible = bones;
-        if (moveBtn != null) moveBtn.visible = bones;
-        if (resetBtn != null) resetBtn.visible = bones;
-        if (resetAllBtn != null) resetAllBtn.visible = bones;
+        if (saveBtn != null) saveBtn.active = editingPose;
+        if (rotateBtn != null) {
+            rotateBtn.visible = bones;
+            rotateBtn.active = editingPose;
+        }
+        if (moveBtn != null) {
+            moveBtn.visible = bones;
+            moveBtn.active = editingPose;
+        }
+        if (resetBtn != null) {
+            resetBtn.visible = bones;
+            resetBtn.active = editingPose;
+        }
+        if (resetAllBtn != null) {
+            resetAllBtn.visible = bones;
+            resetAllBtn.active = editingPose;
+        }
         if (newBtn != null) newBtn.visible = !bones;
-        if (deleteBtn != null) deleteBtn.visible = !bones;
-        if (loadBtn != null) loadBtn.visible = !bones;
+        if (deleteBtn != null) {
+            deleteBtn.visible = !bones;
+            deleteBtn.active = editingPose && originalName != null && !originalName.isBlank();
+        }
         if (unloadBtn != null) unloadBtn.visible = !bones;
     }
 
@@ -752,10 +1182,10 @@ public class PoseEditorScreen extends Screen {
 
         // Left sidebar behind the name field, action grid, bone list and pose list.
         panel(graphics, 4, 4, LEFT_X + LEFT_W + 4, height - STATUS_H);
+        drawNameBar(graphics, font, mouseX, mouseY);
 
         // Keeps the mode button honest no matter how the mode changed.
         refreshModeButtons();
-        refreshUnloadButton();
 
         drawViewport(graphics, mouseX, mouseY, partialTick);
         drawTopInfo(graphics, font);
@@ -766,11 +1196,19 @@ public class PoseEditorScreen extends Screen {
 
         // On top of the widgets, so the group border and the mode marker stay visible.
         drawModeGroup(graphics);
+        drawLoadMenu(graphics, font, mouseX, mouseY);
+        drawNameDialog(graphics, font, mouseX, mouseY);
 
         if (!compatWarnings.isEmpty() && compatX1 > compatX0
             && isOver(mouseX, mouseY, compatX0, compatY0,
                 compatX1 - compatX0, compatY1 - compatY0)) {
-            graphics.setComponentTooltipForNextFrame(font, compatWarnings, mouseX, mouseY);
+            int index = compatWarningIndex();
+            List<Component> tip = new ArrayList<>();
+            tip.add(compatWarnings.get(index));
+            if (compatWarnings.size() > 1) {
+                tip.add(Component.literal((index + 1) + "/" + compatWarnings.size()));
+            }
+            graphics.setComponentTooltipForNextFrame(font, tip, mouseX, mouseY);
         }
     }
 
@@ -791,16 +1229,18 @@ public class PoseEditorScreen extends Screen {
 
         graphics.enableScissor(vpX0 + 1, vpY0 + 1, vpX1 - 1, vpY1 - 1);
         renderPlayerModel(graphics, partialTick);
-        int hoverAxis = buildGizmo(graphics, PoseGizmo.NONE).hitTest(mouseX, mouseY);
-        buildGizmo(graphics, hoverAxis).draw();
+        if (gizmoVisible && editingPose) {
+            int hoverAxis = buildGizmo(graphics, PoseGizmo.NONE).hitTest(mouseX, mouseY);
+            buildGizmo(graphics, hoverAxis).draw();
+        }
         graphics.disableScissor();
 
         // The model owns the viewport; the read-out lives in the top strip instead of
-        // painting over the head.
+        // painting over the head. Long hints scroll instead of being cut off.
         graphics.fill(vpX0, vpY1 - 14, vpX1, vpY1, 0x66000000);
-        String hint = font.plainSubstrByWidth(
-            Component.translatable("playerpose.viewportHint").getString(), vpX1 - vpX0 - 8);
-        graphics.text(font, Component.literal(hint), vpX0 + 4, vpY1 - 12, 0xFF888899);
+        drawMarquee(graphics, font,
+            Component.translatable("playerpose.viewportHint").getString(),
+            vpX0 + 4, vpY1 - 12, vpX1 - vpX0 - 8, 0xFF888899);
     }
 
     /** Selected bone, mode, compat/unsaved badges and axis read-out, above the viewport. */
@@ -808,8 +1248,8 @@ public class PoseEditorScreen extends Screen {
         panel(graphics, vpX0, INFO_Y, vpX1, INFO_Y + INFO_H);
         int maxW = vpX1 - vpX0 - 8;
 
-        boolean unsaved = workingPose == null || workingPose.getName() == null
-            || workingPose.getName().isBlank();
+        boolean unsaved = editingPose && (workingPose == null || workingPose.getName() == null
+            || workingPose.getName().isBlank());
         Component unsavedLabel = Component.translatable("playerpose.unsavedBadge");
         Component compatLabel = Component.translatable("playerpose.compat.badge");
         int compatW = compatWarnings.isEmpty() ? 0 : font.width(compatLabel) + 6;
@@ -819,8 +1259,8 @@ public class PoseEditorScreen extends Screen {
         Component mode = Component.translatable(moveMode ? "playerpose.modeMove" : "playerpose.modeRotate");
         String selectedLine = itemLabel(selected).getString() + "  [" + mode.getString() + "]";
         int textW = Math.max(32, maxW - reserved);
-        graphics.text(font, Component.literal(font.plainSubstrByWidth(selectedLine, textW)),
-            vpX0 + 4, INFO_Y + 3, 0xFFFFFFFF);
+        drawMarquee(graphics, font, selectedLine, vpX0 + 4, INFO_Y + 3, textW,
+            0xFFFFFFFF);
 
         int badgeRight = vpX1 - 4;
         if (compatW > 0) {
@@ -928,22 +1368,40 @@ public class PoseEditorScreen extends Screen {
                 LEFT_X + 4, LIST_Y + 4, 0xFF888888);
         }
 
+        Minecraft mc = Minecraft.getInstance();
+        UUID self = mc.player == null ? null : mc.player.getUUID();
+        Set<UUID> online = onlinePlayerIds(mc);
+        int onlineCount = Math.max(1, online.size());
+
         for (int k = 0; k < rows; k++) {
             int index = listScroll + k;
             if (index >= listTotalRows()) break;
             int yy = LIST_Y + k * ROW_H;
 
             String name = savedPoseNames.get(index);
-            String activeName = PlayerPoseClient.getActivePoseName();
-            // Blue shading = the pose that is actually loaded. Amber frame = the pose
-            // the editor is showing. They can be different, and both can share a row.
-            boolean inEffect = enabled && name.equals(activeName);
+
+            // Number of online players currently carrying this pose. The row tint
+            // opacity simply follows the share of online players: 30% -> 30%,
+            // 50% -> 50%, 100% -> fully opaque.
+            int used = 0;
+            for (UUID id : online) {
+                boolean has = self != null && id.equals(self)
+                    ? PlayerPoseClient.hasLocalPose(name)
+                    : PlayerPoseClient.hasRemotePose(id, name);
+                if (has) used++;
+            }
+            float share = (float) used / onlineCount;
+            int usedAlpha = used == 0 ? 0
+                : Math.max(1, Math.min(255, Math.round(255.0F * share)));
+
             boolean isSelected = workingPose != null && name.equals(workingPose.getName());
             boolean hover = isOver(mouseX, mouseY, LEFT_X, yy, LEFT_W, ROW_H);
 
-            if (inEffect) {
-                graphics.fill(LEFT_X, yy, LEFT_X + LEFT_W, yy + ROW_H, 0x664444AA);
-            } else if (hover) {
+            if (usedAlpha > 0) {
+                graphics.fill(LEFT_X, yy, LEFT_X + LEFT_W, yy + ROW_H,
+                    (usedAlpha << 24) | 0x004444AA);
+            }
+            if (hover) {
                 graphics.fill(LEFT_X, yy, LEFT_X + LEFT_W, yy + ROW_H, 0x33FFFFFF);
             }
             if (isSelected) {
@@ -954,10 +1412,19 @@ public class PoseEditorScreen extends Screen {
                 graphics.fill(LEFT_X, y0, LEFT_X + 1, y1, 0xFFFFC24A);
                 graphics.fill(LEFT_X + LEFT_W - 1, y0, LEFT_X + LEFT_W, y1, 0xFFFFC24A);
             }
-            int textColor = inEffect || isSelected ? 0xFFFFFFFF
+            int textColor = used > 0 || isSelected ? 0xFFFFFFFF
                 : enabled ? 0xFFCCCCCC : 0xFF8891A0;
-            graphics.text(font, Component.literal(font.plainSubstrByWidth(name, LEFT_W - 8)),
+            graphics.text(font, Component.literal(font.plainSubstrByWidth(name, LEFT_W - 22)),
                 LEFT_X + 4, yy + 3, textColor);
+
+            // Per-pose "+" opens the multi-target picker. The pose row itself still
+            // selects the pose for editing.
+            int plusX = LEFT_X + LEFT_W - 14;
+            boolean plusHover = isOver(mouseX, mouseY, plusX, yy + 1, 10, ROW_H - 2);
+            graphics.fill(plusX, yy + 1, plusX + 10, yy + ROW_H - 1,
+                plusHover ? 0x664F9A52 : 0x33222222);
+            graphics.text(font, Component.literal("+"), plusX + 3, yy + 3,
+                plusHover ? 0xFFFFFFFF : 0xFFFFD48A);
         }
 
         // Scrollbar for the active tab.
@@ -971,6 +1438,21 @@ public class PoseEditorScreen extends Screen {
             int thumbY = trackTop + (trackH - thumbH) * listScroll / Math.max(1, maxListScroll());
             graphics.fill(trackX, thumbY, trackX + 2, thumbY + thumbH, 0xCCFFFFFF);
         }
+    }
+
+    /** Unique UUIDs of the local player plus every player listed by the server. */
+    private static Set<UUID> onlinePlayerIds(Minecraft mc) {
+        Set<UUID> ids = new HashSet<>();
+        if (mc.player != null) ids.add(mc.player.getUUID());
+        if (mc.getConnection() != null) {
+            for (PlayerInfo info : mc.getConnection().getOnlinePlayers()) {
+                if (info != null && info.getProfile() != null
+                    && info.getProfile().id() != null) {
+                    ids.add(info.getProfile().id());
+                }
+            }
+        }
+        return ids;
     }
 
     // ---- clickable mannequin (Bones tab) ---------------------------------
@@ -1028,7 +1510,7 @@ public class PoseEditorScreen extends Screen {
         Component right = Component.literal("R");
         graphics.text(font, right, f.x(-8) - 3 - font.width(right), markerY, 0xFF7F889A);
 
-        boolean capeSelected = "cape".equals(selected);
+        boolean capeSelected = selectionVisible && "cape".equals(selected);
         boolean capeHover = "cape".equals(hover);
         graphics.fill(f.chipX0(), f.chipY0(), f.chipX1(), f.chipY1(),
             capeSelected ? 0x6644AA44 : capeHover ? 0x33FFFFFF : 0x55222233);
@@ -1054,7 +1536,7 @@ public class PoseEditorScreen extends Screen {
                               int argb, String hover) {
         int px0 = f.x(x0), py0 = f.y(y0), px1 = f.x(x1), py1 = f.y(y1);
         graphics.fill(px0, py0, px1, py1, argb);
-        boolean isSelected = bone.equals(selected);
+        boolean isSelected = selectionVisible && bone.equals(selected);
         if (!isSelected && bone.equals(hover)) {
             graphics.fill(px0, py0, px1, py1, 0x40FFFFFF);
         }
@@ -1154,22 +1636,47 @@ public class PoseEditorScreen extends Screen {
         return Math.max(0, listTotalRows() - listWindow());
     }
 
+    /**
+     * Draw text that is wider than its slot as a slow marquee instead of cutting
+     * off the end. The scissor keeps it inside the hint / status strip.
+     */
+    private static void drawMarquee(GuiGraphicsExtractor graphics, Font font, String text,
+                                    int x, int y, int maxWidth, int color) {
+        int textW = font.width(text);
+        if (textW <= maxWidth) {
+            graphics.text(font, Component.literal(text), x, y, color);
+            return;
+        }
+        int gap = 24;
+        int cycle = textW + gap;
+        int offset = (int) ((System.currentTimeMillis() / 35L) % cycle);
+        graphics.enableScissor(x, y - 1, x + maxWidth, y + font.lineHeight + 1);
+        graphics.text(font, Component.literal(text), x - offset, y, color);
+        graphics.text(font, Component.literal(text), x - offset + cycle, y, color);
+        graphics.disableScissor();
+    }
+
+    /** Which compatibility warning is currently in the rotating slot. */
+    private int compatWarningIndex() {
+        if (compatWarnings.isEmpty()) return 0;
+        return (int) ((System.currentTimeMillis() / 3000L) % compatWarnings.size());
+    }
+
     private void drawStatusBar(GuiGraphicsExtractor graphics, Font font) {
         int y = height - STATUS_H + 5;
         if (!statusMsg.isEmpty() && System.currentTimeMillis() < statusUntil) {
-            graphics.text(font, Component.literal(font.plainSubstrByWidth(statusMsg, width - 16)),
-                LEFT_X, y, 0xFFFFFF88);
+            drawMarquee(graphics, font, statusMsg, LEFT_X, y, width - 16, 0xFFFFFF88);
         } else if (!compatWarnings.isEmpty()) {
-            String warn = "[!] " + compatWarnings.get(0).getString();
+            int index = compatWarningIndex();
+            String warn = "[!] " + compatWarnings.get(index).getString();
             if (compatWarnings.size() > 1) {
-                warn += " (+" + (compatWarnings.size() - 1) + ")";
+                warn += "  (" + (index + 1) + "/" + compatWarnings.size() + ")";
             }
-            graphics.text(font, Component.literal(font.plainSubstrByWidth(warn, width - 16)),
-                LEFT_X, y, warnBlink() ? 0xFFFFC24A : 0xFF7A5A1A);
+            drawMarquee(graphics, font, warn, LEFT_X, y, width - 16,
+                warnBlink() ? 0xFFFFC24A : 0xFF7A5A1A);
         } else {
-            String hint = font.plainSubstrByWidth(
-                Component.translatable("playerpose.hint").getString(), width - 16);
-            graphics.text(font, Component.literal(hint), LEFT_X, y, 0xFF888888);
+            String hint = Component.translatable("playerpose.hint").getString();
+            drawMarquee(graphics, font, hint, LEFT_X, y, width - 16, 0xFF888888);
         }
     }
 
@@ -1202,6 +1709,63 @@ public class PoseEditorScreen extends Screen {
 
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        if (nameDialogOpen) {
+            nameDialogLayout();
+            int mx = (int) event.x();
+            int my = (int) event.y();
+            if (isOver(mx, my, nameDialogOkX0, nameDialogOkY0,
+                nameDialogOkX1 - nameDialogOkX0, CTRL_H)) {
+                confirmNameDialog();
+                return true;
+            }
+            if (isOver(mx, my, nameDialogCancelX0, nameDialogCancelY0,
+                nameDialogCancelX1 - nameDialogCancelX0, CTRL_H)) {
+                closeNameDialog();
+                return true;
+            }
+            if (mx >= nameDialogX0 && mx < nameDialogX1
+                && my >= nameDialogY0 && my < nameDialogY1) {
+                return true; // inside the dialog: keep it open
+            }
+            closeNameDialog();
+            return true;
+        }
+        if (loadMenuOpen) {
+            int mx = (int) event.x();
+            int my = (int) event.y();
+            if (isOver(mx, my, loadMenuX0 + 1, loadMenuAllY0,
+                loadMenuX1 - loadMenuX0 - 2, LOAD_MENU_ROW_H)) {
+                toggleAllTargets();
+                return true;
+            }
+            if (isOver(mx, my, loadMenuCloseX0, loadMenuCloseY0,
+                loadMenuCloseX1 - loadMenuCloseX0, loadMenuCloseY1 - loadMenuCloseY0)) {
+                loadMenuOpen = false;
+                return true;
+            }
+            int row = loadMenuRowAt(mx, my);
+            if (row >= 0) {
+                toggleTarget(loadTargets.get(row));
+                return true;
+            }
+            if (mx >= loadMenuX0 && mx < loadMenuX1
+                && my >= loadMenuY0 && my < loadMenuY1) {
+                return true; // title / scrollbar / padding
+            }
+            loadMenuOpen = false;
+            return true;
+        }
+
+        // The name bar is read-only; clicking it opens the rename dialog.
+        if (isOver((int) event.x(), (int) event.y(), LEFT_X, 6, LEFT_W, CTRL_H)) {
+            if (!editingPose) {
+                setStatus(Component.translatable("playerpose.status.pressNew"));
+            } else {
+                openNameDialog(false);
+            }
+            return true;
+        }
+
         // Never let a previous drag state swallow this click.
         int previousAxis = activeAxis;
         if (!orbiting && previousAxis != PoseGizmo.NONE && !inViewport(event.x(), event.y())) {
@@ -1216,10 +1780,28 @@ public class PoseEditorScreen extends Screen {
         }
 
         if (listTab == 0) {
+            if (!editingPose) {
+                if (boneAt(event.x(), event.y()) != null || inList(event.x(), event.y())) {
+                    setStatus(Component.translatable("playerpose.status.pressNew"));
+                    return true;
+                }
+            }
             String bone = boneAt(event.x(), event.y());
             if (bone != null) {
                 activeAxis = PoseGizmo.NONE;
+                // Selecting a bone brings the frame and gizmo back automatically.
+                selectionVisible = true;
+                gizmoVisible = true;
                 if (!bone.equals(selected)) selectRow(bone);
+                return true;
+            }
+            if (inList(event.x(), event.y())) {
+                // Empty space in the Bone figure clears the visual selection. The
+                // pose data is untouched; clicking any bone selects it again.
+                gizmoVisible = false;
+                selectionVisible = false;
+                activeAxis = PoseGizmo.NONE;
+                setStatus(Component.translatable("playerpose.status.gizmoHidden"));
                 return true;
             }
         } else {
@@ -1227,7 +1809,14 @@ public class PoseEditorScreen extends Screen {
             if (listRow >= 0) {
                 activeAxis = PoseGizmo.NONE;
                 if (listRow < savedPoseNames.size()) {
-                    selectPose(savedPoseNames.get(listRow));
+                    int rowY = LIST_Y + (listRow - listScroll) * ROW_H;
+                    int plusX0 = LEFT_X + LEFT_W - 14;
+                    if (event.x() >= plusX0 && event.x() < LEFT_X + LEFT_W - 4
+                        && event.y() >= rowY && event.y() < rowY + ROW_H) {
+                        openLoadMenu(savedPoseNames.get(listRow));
+                    } else {
+                        selectPose(savedPoseNames.get(listRow));
+                    }
                 }
                 return true;
             }
@@ -1241,9 +1830,13 @@ public class PoseEditorScreen extends Screen {
                 return true;
             }
             if (event.button() == 0) {
-                PoseGizmo probe = buildGizmo(null, PoseGizmo.NONE);
-                int hit = probe.hitTest(event.x(), event.y());
-                if (hit != PoseGizmo.NONE) {
+                int hit = PoseGizmo.NONE;
+                PoseGizmo probe = null;
+                if (gizmoVisible) {
+                    probe = buildGizmo(null, PoseGizmo.NONE);
+                    hit = probe.hitTest(event.x(), event.y());
+                }
+                if (hit != PoseGizmo.NONE && probe != null) {
                     activeAxis = hit;
                     dragStartAngle = PoseGizmo.angleAt(event.x(), event.y(), probe.centerX(), probe.centerY());
                     dragStartMouseX = event.x();
@@ -1262,6 +1855,7 @@ public class PoseEditorScreen extends Screen {
 
     @Override
     public boolean mouseDragged(MouseButtonEvent event, double dragX, double dragY) {
+        if (nameDialogOpen) return true;
         if (activeAxis != PoseGizmo.NONE) {
             if (moveMode) {
                 PoseGizmo gizmo = buildGizmo(null, PoseGizmo.NONE);
@@ -1275,14 +1869,17 @@ public class PoseEditorScreen extends Screen {
             } else {
                 PoseGizmo gizmo = buildGizmo(null, PoseGizmo.NONE);
                 double now = PoseGizmo.angleAt(event.x(), event.y(), gizmo.centerX(), gizmo.centerY());
-                double delta = PoseGizmo.wrapAngle(now - dragStartAngle);
+                double delta = PoseGizmo.wrapAngle(now - dragStartAngle)
+                    * gizmo.rotationSign(activeAxis);
                 setRotationFor(activeAxis, dragStartValue + delta);
             }
             return true;
         }
         if (orbiting) {
-            camYaw = Math.max(-89.0, Math.min(89.0, camYaw + dragX * 0.6));
-            camPitch = Math.max(-45.0, Math.min(45.0, camPitch + dragY * 0.5));
+            // Follow the drag: moving the empty viewport right/down turns the scene
+            // right/down instead of inverting both axes.
+            camYaw = Math.max(-89.0, Math.min(89.0, camYaw - dragX * 0.6));
+            camPitch = Math.max(-45.0, Math.min(45.0, camPitch - dragY * 0.5));
             return true;
         }
         return super.mouseDragged(event, dragX, dragY);
@@ -1305,6 +1902,18 @@ public class PoseEditorScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        if (nameDialogOpen) return true;
+        if (loadMenuOpen) {
+            if (mouseX >= loadMenuX0 && mouseX < loadMenuX1
+                && mouseY >= loadMenuY0 && mouseY < loadMenuY1) {
+                int step = scrollY < 0 ? 1 : scrollY > 0 ? -1 : 0;
+                loadMenuScroll = Math.max(0, Math.min(loadMenuScroll + step,
+                    loadMenuMaxScroll()));
+            } else {
+                loadMenuOpen = false;
+            }
+            return true;
+        }
         if (inViewport(mouseX, mouseY)) {
             camZoom = Math.max(0.4, Math.min(2.5, camZoom * (1.0 + scrollY * 0.1)));
             return true;
@@ -1320,9 +1929,46 @@ public class PoseEditorScreen extends Screen {
     }
 
     @Override
+    public boolean charTyped(CharacterEvent event) {
+        if (nameDialogOpen) {
+            int cp = event.codepoint();
+            if (cp >= 32
+                && nameDialogText.codePointCount(0, nameDialogText.length()) < 32) {
+                nameDialogText += new String(Character.toChars(cp));
+            }
+            return true;
+        }
+        return super.charTyped(event);
+    }
+
+    @Override
     public boolean keyPressed(KeyEvent event) {
+        if (nameDialogOpen) {
+            if (event.key() == 256) { // ESC cancels
+                closeNameDialog();
+                return true;
+            }
+            if (event.key() == 257 || event.key() == 335) { // ENTER / keypad ENTER
+                confirmNameDialog();
+                return true;
+            }
+            if (event.key() == 259 && !nameDialogText.isEmpty()) { // BACKSPACE
+                nameDialogText = nameDialogText.substring(0,
+                    nameDialogText.offsetByCodePoints(nameDialogText.length(), -1));
+            }
+            return true;
+        }
+        if (loadMenuOpen) {
+            if (event.key() == 256) { // ESC closes only the chooser, not the editor
+                loadMenuOpen = false;
+                return true;
+            }
+            return true;
+        }
         boolean ctrl = (event.modifiers() & 2) != 0; // GLFW_MOD_CONTROL
-        if (!ctrl && nameBox != null && nameBox.isFocused()) return super.keyPressed(event);
+        if (!editingPose && event.key() != 256) {
+            return super.keyPressed(event);
+        }
         if (ctrl) {
             switch (event.key()) {
                 case 90 -> { // Z: undo, or redo with shift
