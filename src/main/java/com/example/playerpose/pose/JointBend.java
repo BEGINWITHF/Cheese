@@ -1,24 +1,23 @@
 package com.example.playerpose.pose;
 
 /**
- * Smooth hip bend for the thigh.
+ * Smooth bend for a limb joint (hip, elbow or knee).
  *
- * <p>Rotating every vertex of a thick leg around one hip pivot folds the back
+ * <p>Rotating every vertex of a thick limb around one joint pivot folds the back
  * edge: the edge is offset from the pivot, so the chord turns much faster than
- * the leg centre and the silhouette gets a notch. This deformer instead moves
+ * the limb centre and the silhouette gets a notch. This deformer instead moves
  * the cross-sections along a curved centreline and turns each cross-section to
- * the local tangent. The top cross-section is pinned at the body; the band ends
- * tangent-continuous with the straight lower leg. The result is an offset curve,
- * not a set of circles around the hip, so both the front and back silhouettes
- * stay smooth.</p>
+ * the local tangent. The cross-section at the joint is pinned to the parent
+ * segment; the band ends tangent-continuous with the straight child segment. The
+ * result is an offset curve, not a set of circles around the joint, so both the
+ * front and back silhouettes stay smooth.</p>
  *
- * <p>The hip rotation is split into a minimal bend (rotating local +Y to the
- * posed thigh direction) and a twist about the thigh. The bend angle uses a C2
- * curve: value, slope and curvature are zero at the pinned top and at the
- * straight lower leg, with the curvature peak at 37.5% of the band (1.5 units
- * from the hip with the current 4-unit band).</p>
+ * <p>The joint rotation is split into a minimal bend (rotating local +Y to the
+ * posed child direction) and a twist about the child. The bend angle uses a C2
+ * curve: value, slope and curvature are zero at the pinned joint and at the
+ * straight child segment, with the curvature peak at 37.5% of the band.</p>
  */
-public final class HipBend {
+public final class JointBend {
 
     private static final double STEP = 0.25;
     private static final int TABLE = 49;
@@ -28,6 +27,7 @@ public final class HipBend {
     private final double ry;
     private final double rz;
     private final double half;
+    private final boolean symmetric;
     private final double[] axis;
     private final double theta;
     private final double twist;
@@ -35,11 +35,12 @@ public final class HipBend {
     private final double[] cy = new double[TABLE];
     private final double[] cz = new double[TABLE];
 
-    private HipBend(double rx, double ry, double rz) {
+    private JointBend(double rx, double ry, double rz, double half, boolean symmetric) {
         this.rx = rx;
         this.ry = ry;
         this.rz = rz;
-        this.half = PoseLimbs.HIP_BEND_HALF;
+        this.half = half;
+        this.symmetric = symmetric;
 
         double[] tip = BoneMath.rotateZYX(0.0, 1.0, 0.0, rx, ry, rz);
         double dot = Math.max(-1.0, Math.min(1.0, tip[1]));
@@ -59,13 +60,22 @@ public final class HipBend {
         buildCentreline();
     }
 
-    public static HipBend of(double rx, double ry, double rz) {
-        return new HipBend(rx, ry, rz);
+    public static JointBend of(double rx, double ry, double rz, double half) {
+        return new JointBend(rx, ry, rz, half, false);
     }
 
     /**
-     * Bend a leg-local point. The point is the already knee-bent position, with
-     * x/z measured from the leg centreline and y measured from the hip.
+     * Symmetric joint blend: the band straddles the joint, so both the parent end
+     * and the child end share the bend. Used for elbows and knees where both sides
+     * are visible.
+     */
+    public static JointBend ofSymmetric(double rx, double ry, double rz, double half) {
+        return new JointBend(rx, ry, rz, half, true);
+    }
+
+    /**
+     * Bend a limb-local point. The point is the already child-bent position, with
+     * x/z measured from the limb centreline and y measured from the joint.
      */
     public double[] apply(double x, double y, double z) {
         // The second-layer top can sit slightly above the hip (negative y). It is
@@ -81,7 +91,7 @@ public final class HipBend {
         return localRotate(y, nx, ny, nz);
     }
 
-    /** Undo the parent leg part's full hip rotation, which is applied at render. */
+    /** Undo the parent limb part's full joint rotation, which is applied at render. */
     public double[] counterRotation(double x, double y, double z) {
         return BoneMath.rotateInverseZYX(x, y, z, rx, ry, rz);
     }
@@ -98,12 +108,20 @@ public final class HipBend {
         if (y <= 0.0) return 0.0;
         if (y >= half) return 1.0;
         double t = y / half;
+        if (symmetric) {
+            // Smootherstep: C2 at both ends, symmetric, steepest at the joint.
+            return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+        }
         // Integral of 504*t^3*(1-t)^5: C2 at both ends, with the steepest part
-        // (and therefore the tightest bend) at t = 0.375, i.e. 1.5 units from
-        // the hip with the 4-unit band.
+        // (and therefore the tightest bend) at t = 0.375 of the band.
         return t * t * t * t * (126.0 - 504.0 * t + 840.0 * t * t
             - 720.0 * t * t * t + 315.0 * t * t * t * t
             - 56.0 * t * t * t * t * t);
+    }
+
+    /** Blend weight at a distance from the band origin. */
+    public double weightAt(double y) {
+        return weight(y);
     }
 
     private void buildCentreline() {

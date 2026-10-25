@@ -16,6 +16,14 @@ public final class PoseLimbs {
      */
     public static final float HIP_BEND_HALF = 4.0F;
 
+    /**
+     * Half-width of the symmetric elbow/knee blend, in model units. The band
+     * straddles the joint (one pixel above and one below), so the parent end and
+     * the child end share the bend instead of folding the child against a rigid
+     * parent.
+     */
+    public static final float JOINT_BEND_HALF = 1.0F;
+
     public static final float SLICE_H = 1.0F;
 
     private PoseLimbs() {}

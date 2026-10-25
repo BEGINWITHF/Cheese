@@ -2,7 +2,7 @@ package com.example.playerpose.mixin;
 
 import com.example.playerpose.PlayerPoseClient;
 import com.example.playerpose.pose.BoneMath;
-import com.example.playerpose.pose.HipBend;
+import com.example.playerpose.pose.JointBend;
 import com.example.playerpose.pose.LayerBends;
 import com.example.playerpose.pose.Pose;
 import com.example.playerpose.pose.PoseBone;
@@ -214,18 +214,28 @@ public abstract class PoseModelMixin implements PoseModelAccess {
             ty = (float) bone.ty;
             tz = (float) bone.tz;
         }
-        HipBend hipBend = null;
+        JointBend hipBend = null;
         if (hipBone != null && !hipBone.isRest()) {
-            hipBend = HipBend.of(hipBone.x, hipBone.y, hipBone.z);
+            hipBend = JointBend.of(hipBone.x, hipBone.y, hipBone.z,
+                PoseLimbs.HIP_BEND_HALF);
+        }
+        // The forearm/shin bends around its own joint with the same curved-centreline
+        // solver the hip uses, so the elbow/knee cannot pinch the back edge either.
+        JointBend jointBend = null;
+        if (bone != null && !bone.isRest()) {
+            jointBend = JointBend.ofSymmetric(bone.x, bone.y, bone.z,
+                PoseLimbs.JOINT_BEND_HALF * 2.0);
         }
         for (int i = 0; i < slices; i++) {
             ModelPart first = child(limb, firstBase + i);
             if (first != null) {
-                deformSlice(first, centerX, seam, rx, ry, rz, tx, ty, tz, hipBend);
+                deformSlice(first, centerX, seam, rx, ry, rz, tx, ty, tz,
+                    hipBend, jointBend);
             }
             ModelPart second = child(overlay, secondBase + i);
             if (second != null) {
-                deformSlice(second, centerX, seam, rx, ry, rz, tx, ty, tz, hipBend);
+                deformSlice(second, centerX, seam, rx, ry, rz, tx, ty, tz,
+                    hipBend, jointBend);
             }
         }
     }
@@ -265,7 +275,9 @@ public abstract class PoseModelMixin implements PoseModelAccess {
         var partPose = part.getInitialPose();
         float yOffset = partPose == null ? 0.0F : partPose.y();
         float seam = (bounds[2] + bounds[3]) / 2.0F + yOffset;
-        deformSlice(part, centerX, seam, rx, ry, rz, tx, ty, tz, null);
+        JointBend jointBend = JointBend.ofSymmetric(rx, ry, rz,
+            PoseLimbs.JOINT_BEND_HALF * 2.0);
+        deformSlice(part, centerX, seam, rx, ry, rz, tx, ty, tz, null, jointBend);
     }
 
     /** Local-space x/y bounds of all cubes in a part, from the rest polygons. */
@@ -291,7 +303,8 @@ public abstract class PoseModelMixin implements PoseModelAccess {
 
     private static void deformSlice(ModelPart slice, float centerX, float seam,
                                     float rx, float ry, float rz,
-                                    float tx, float ty, float tz, HipBend hipBend) {
+                                    float tx, float ty, float tz,
+                                    JointBend hipBend, JointBend jointBend) {
         var slicePose = slice.getInitialPose();
         if (slicePose == null) return;
         float yOffset = slicePose.y();
@@ -306,19 +319,32 @@ public abstract class PoseModelMixin implements PoseModelAccess {
                 ModelPart.Vertex[] out = new ModelPart.Vertex[old.length];
                 float faceWeight = 0.0F;
                 float faceY = 0.0F;
+                float jointStart = seam - PoseLimbs.JOINT_BEND_HALF;
 
                 for (int v = 0; v < old.length; v++) {
                     ModelPart.Vertex vertex = old[v];
                     float y = yOffset + vertex.y();
                     float weight = bendWeight(y, seam);
+                    double jointWeight = jointBend == null ? 0.0
+                        : jointBend.weightAt(y - jointStart);
                     faceWeight += weight;
                     faceY += y;
 
-                    double[] r = BoneMath.rotateZYX(vertex.x() - centerX, y - seam,
-                        vertex.z(), rx * weight, ry * weight, rz * weight);
-                    float nx = (float) (r[0] + centerX + tx * weight);
-                    float ny = (float) (r[1] + seam + ty * weight - yOffset);
-                    float nz = (float) (r[2] + tz * weight);
+                    double[] r;
+                    if (jointBend != null) {
+                        // Symmetric band straddling the joint: one or two pixels on
+                        // each side share the bend, so the inner side cannot fold.
+                        r = jointBend.apply(vertex.x() - centerX,
+                            y - jointStart, vertex.z());
+                    } else {
+                        r = BoneMath.rotateZYX(vertex.x() - centerX, y - seam,
+                            vertex.z(), rx * weight, ry * weight, rz * weight);
+                    }
+                    float origin = jointBend != null ? jointStart : seam;
+                    float w = jointBend != null ? (float) jointWeight : weight;
+                    float nx = (float) (r[0] + centerX + tx * w);
+                    float ny = (float) (r[1] + origin + ty * w - yOffset);
+                    float nz = (float) (r[2] + tz * w);
 
                     // The hip is a curved offset, not a rotation around one pivot.
                     // The knee result is moved onto the bent centreline locally,
@@ -336,8 +362,14 @@ public abstract class PoseModelMixin implements PoseModelAccess {
 
                 faceWeight /= old.length;
                 faceY /= old.length;
-                double[] n = BoneMath.rotateZYX(polygon.normal().x(), polygon.normal().y(),
-                    polygon.normal().z(), rx * faceWeight, ry * faceWeight, rz * faceWeight);
+                double[] n;
+                if (jointBend != null) {
+                    n = jointBend.bendNormal(faceY - jointStart, polygon.normal().x(),
+                        polygon.normal().y(), polygon.normal().z());
+                } else {
+                    n = BoneMath.rotateZYX(polygon.normal().x(), polygon.normal().y(),
+                        polygon.normal().z(), rx * faceWeight, ry * faceWeight, rz * faceWeight);
+                }
                 if (hipBend != null) {
                     double[] hn = hipBend.bendNormal(faceY, n[0], n[1], n[2]);
                     n = hipBend.counterRotation(hn[0], hn[1], hn[2]);
@@ -489,7 +521,8 @@ public abstract class PoseModelMixin implements PoseModelAccess {
             // The shin marker is bent by the hip centreline, not by the parent's
             // rigid rotation. Publish the curved position so the gizmo sits on the
             // knee the user can actually see.
-            HipBend hip = HipBend.of(parent.xRot, parent.yRot, parent.zRot);
+            JointBend hip = JointBend.of(parent.xRot, parent.yRot, parent.zRot,
+                PoseLimbs.HIP_BEND_HALF);
             double[] k = hip.apply(part.x, part.y, part.z);
             PlayerPoseClient.publishJointPivot(bone,
                 (float) (parent.x + k[0]), (float) (parent.y + k[1]),
