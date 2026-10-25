@@ -35,4 +35,12 @@ public final class BoneMath {
 
         return new double[] {x1, y1, z};
     }
+
+    /** Apply the inverse of Rz(rz) * Ry(ry) * Rx(rx). */
+    public static double[] rotateInverseZYX(double x, double y, double z,
+                                            double rx, double ry, double rz) {
+        double[] a = rotateZYX(x, y, z, 0.0, 0.0, -rz);
+        a = rotateZYX(a[0], a[1], a[2], 0.0, -ry, 0.0);
+        return rotateZYX(a[0], a[1], a[2], -rx, 0.0, 0.0);
+    }
 }
