@@ -2,10 +2,12 @@ package com.example.playerpose.mixin;
 
 import com.example.playerpose.PlayerPoseClient;
 import com.example.playerpose.pose.BoneMath;
+import com.example.playerpose.pose.HipBend;
 import com.example.playerpose.pose.LayerBends;
 import com.example.playerpose.pose.Pose;
 import com.example.playerpose.pose.PoseBone;
 import com.example.playerpose.pose.PoseLimbs;
+import com.example.playerpose.pose.PoseLog;
 import com.example.playerpose.pose.PoseModelAccess;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.HumanoidModel;
@@ -62,6 +64,9 @@ public abstract class PoseModelMixin implements PoseModelAccess {
     private static final Map<ModelPart.Cube, ModelPart.Polygon[]> REST_POLYGONS =
         new WeakHashMap<>();
 
+    /** Diagnostic: log each leg pivot once if an animation mod moved it. */
+    private static final java.util.Set<String> LOGGED_LEG_POS = new java.util.HashSet<>();
+
     @Shadow public ModelPart head;
     @Shadow public ModelPart body;
     @Shadow public ModelPart leftArm;
@@ -85,23 +90,24 @@ public abstract class PoseModelMixin implements PoseModelAccess {
     private void playerpose$applyPoseInternal(HumanoidRenderState state) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
-        if (!(state instanceof AvatarRenderState avatar) || avatar.id != mc.player.getId()) return;
+        if (!(state instanceof AvatarRenderState avatar)) return;
+        boolean local = avatar.id == mc.player.getId();
 
         // The cape and armor layers are HumanoidModels too (armor is even baked as a
         // PlayerModel). Only the split body model owns the joint pivots and the
         // per-frame layer-bend table; the others still receive the pose, but must not
         // wipe what the body model registered.
-        boolean bodyModel = (Object) this instanceof PlayerModel
-            && !((Object) this instanceof PlayerCapeModel)
-            && child(leftArm, "left_forearm") != null;
+        boolean playerModel = (Object) this instanceof PlayerModel
+            && !((Object) this instanceof PlayerCapeModel);
+        boolean bodyModel = playerModel && child(leftArm, "left_forearm") != null;
 
-        if (bodyModel) LayerBends.clear();
+        if (bodyModel && local) LayerBends.clear();
 
-        Pose pose = PlayerPoseClient.resolvePoseForLocalPlayer(mc);
+        Pose pose = PlayerPoseClient.resolvePoseForEntity(mc, avatar.id);
         if (pose == null || pose.getBones() == null || pose.getBones().isEmpty()) {
-            if (bodyModel) {
+            if (playerModel) {
                 resetDeform();
-                publishPivots();
+                if (local) publishPivots();
             }
             return;
         }
@@ -111,59 +117,93 @@ public abstract class PoseModelMixin implements PoseModelAccess {
             int index = restIndex(bone.bone);
             ModelPart part = findPart(bone.bone);
             if (part == null || index < 0) continue;
-            if (bone.isRest()) continue;
+
+            // Animation mods can move the leg pivot in Z after setupAnim. That puts
+            // the hip axis on the front/back edge of the 4-deep leg instead of its
+            // centre, so the leg appears hinged at its front face. Legs are ours to
+            // drive: always restore their rest pivot (plus the pose translation).
+            boolean legPart = "leftLeg".equals(bone.bone) || "rightLeg".equals(bone.bone)
+                || "leftShin".equals(bone.bone) || "rightShin".equals(bone.bone);
+            double dx = bone.tx;
+            double dy = bone.ty;
+            double dz = bone.tz;
+            if (legPart) {
+                float[] rest = restFor(part, index);
+                if (LOGGED_LEG_POS.add(bone.bone)
+                    && (Math.abs(part.x - rest[0]) + Math.abs(part.y - rest[1])
+                        + Math.abs(part.z - rest[2]) > 1.0E-3)) {
+                    PoseLog.info("leg pivot corrected: %s (%.2f,%.2f,%.2f) -> (%.2f,%.2f,%.2f)",
+                        bone.bone, part.x, part.y, part.z, rest[0], rest[1], rest[2]);
+                }
+                part.setPos(rest[0] + (float) dx, rest[1] + (float) dy, rest[2] + (float) dz);
+                if (bone.isRest()) {
+                    part.setRotation(0.0F, 0.0F, 0.0F);
+                    continue;
+                }
+            } else if (bone.isRest()) {
+                continue;
+            }
 
             float rx = (float) bone.x;
             float ry = (float) bone.y;
             float rz = (float) bone.z;
             part.setRotation(rx, ry, rz);
 
-            double dx = bone.tx;
-            double dy = bone.ty;
-            double dz = bone.tz;
+            if (!legPart && Math.abs(dx) + Math.abs(dy) + Math.abs(dz) > 1.0E-4) {
+                float[] rest = restFor(part, index);
+                part.setPos(rest[0] + (float) dx, rest[1] + (float) dy, rest[2] + (float) dz);
+            }
 
-            // Always restore the rest position before adding the pose translation.
-            // Animation mods (EMF/Fresh Animations) may have moved the same part
-            // after our first pass; resetting here makes the pose the last writer.
-            float[] rest = restFor(part, index);
-            part.setPos(rest[0] + (float) dx, rest[1] + (float) dy, rest[2] + (float) dz);
-
-            if (bodyModel) registerLayerBend(bone.bone, rx, ry, rz, dx, dy, dz);
+            if (bodyModel && local) registerLayerBend(bone.bone, rx, ry, rz, dx, dy, dz);
         }
 
-        if (bodyModel) {
+        if (playerModel) {
             deformLimbs(pose);
-            publishPivots();
+            // Pivots feed the editor's gizmo. Remote players render with the same
+            // shared model classes, so only the local player may publish them.
+            if (local) publishPivots();
         }
     }
 
     // ---- smooth limb skinning -------------------------------------------
 
     private void deformLimbs(Pose pose) {
-        deformLimb(pose, "leftForearm", leftArm, "left_arm_slice", "left_sleeve_slice",
-            "left_forearm", "left_sleeve");
-        deformLimb(pose, "rightForearm", rightArm, "right_arm_slice", "right_sleeve_slice",
-            "right_forearm", "right_sleeve");
-        deformLimb(pose, "leftShin", leftLeg, "left_leg_slice", "left_pants_slice",
-            "left_shin", "left_pants");
-        deformLimb(pose, "rightShin", rightLeg, "right_leg_slice", "right_pants_slice",
-            "right_shin", "right_pants");
+        deformLimb(pose, "leftForearm", null, leftArm, "left_arm_slice", "left_sleeve_slice",
+            "left_forearm", "left_sleeve", PoseLimbs.SLICES);
+        deformLimb(pose, "rightForearm", null, rightArm, "right_arm_slice", "right_sleeve_slice",
+            "right_forearm", "right_sleeve", PoseLimbs.SLICES);
+        deformLimb(pose, "leftShin", "leftLeg", leftLeg, "left_leg_slice", "left_pants_slice",
+            "left_shin", "left_pants", PoseLimbs.SLICES);
+        deformLimb(pose, "rightShin", "rightLeg", rightLeg, "right_leg_slice", "right_pants_slice",
+            "right_shin", "right_pants", PoseLimbs.SLICES);
     }
 
-    private static void deformLimb(Pose pose, String boneName, ModelPart limb,
+    private static void deformLimb(Pose pose, String boneName, String hipBoneName, ModelPart limb,
                                    String firstBase, String secondBase,
-                                   String jointName, String overlayName) {
+                                   String jointName, String overlayName, int slices) {
         if (limb == null) return;
+        PoseBone bone = findBone(pose, boneName);
+        PoseBone hipBone = hipBoneName == null ? null : findBone(pose, hipBoneName);
+        ModelPart overlay = child(limb, overlayName);
+
+        boolean sliced = child(limb, firstBase + "0") != null;
+        if (!sliced) {
+            // EMF / OptiFine custom player models keep the whole limb as one piece
+            // and have no forearm/shin marker. Bend the limb's own cubes around its
+            // midpoint instead, so the second segment still moves with these packs.
+            if (bone != null && !bone.isRest()) {
+                deformWholeLimb(limb, overlay, boneName, bone);
+            }
+            return;
+        }
+
         ModelPart joint = child(limb, jointName);
         if (joint == null) return;
         var jointPose = joint.getInitialPose();
         if (jointPose == null) return;
-
-        ModelPart overlay = child(limb, overlayName);
         float centerX = jointPose.x();
         float seam = jointPose.y();
 
-        PoseBone bone = findBone(pose, boneName);
         float rx = 0.0F, ry = 0.0F, rz = 0.0F;
         float tx = 0.0F, ty = 0.0F, tz = 0.0F;
         if (bone != null && !bone.isRest()) {
@@ -174,17 +214,84 @@ public abstract class PoseModelMixin implements PoseModelAccess {
             ty = (float) bone.ty;
             tz = (float) bone.tz;
         }
-        for (int i = 0; i < PoseLimbs.SLICES; i++) {
-            ModelPart first = child(limb, firstBase + i);
-            if (first != null) deformSlice(first, centerX, seam, rx, ry, rz, tx, ty, tz);
-            ModelPart second = child(overlay, secondBase + i);
-            if (second != null) deformSlice(second, centerX, seam, rx, ry, rz, tx, ty, tz);
+        HipBend hipBend = null;
+        if (hipBone != null && !hipBone.isRest()) {
+            hipBend = HipBend.of(hipBone.x, hipBone.y, hipBone.z);
         }
+        for (int i = 0; i < slices; i++) {
+            ModelPart first = child(limb, firstBase + i);
+            if (first != null) {
+                deformSlice(first, centerX, seam, rx, ry, rz, tx, ty, tz, hipBend);
+            }
+            ModelPart second = child(overlay, secondBase + i);
+            if (second != null) {
+                deformSlice(second, centerX, seam, rx, ry, rz, tx, ty, tz, hipBend);
+            }
+        }
+    }
+
+    /** Bend a whole-limb (custom model) part around the middle of its geometry. */
+    private static void deformWholeLimb(ModelPart limb, ModelPart overlay,
+                                        String boneName, PoseBone bone) {
+        float[] limbBounds = limbBounds(limb);
+        float[] overlayBounds = overlay == null ? null : limbBounds(overlay);
+        float[] bounds = limbBounds != null ? limbBounds : overlayBounds;
+        if (bounds == null) return;
+
+        float centerX = (bounds[0] + bounds[1]) / 2.0F;
+        float midY = (bounds[2] + bounds[3]) / 2.0F;
+        float rx = (float) bone.x;
+        float ry = (float) bone.y;
+        float rz = (float) bone.z;
+        float tx = (float) bone.tx;
+        float ty = (float) bone.ty;
+        float tz = (float) bone.tz;
+
+        if (limbBounds != null) {
+            deformWholePart(limb, centerX, rx, ry, rz, tx, ty, tz);
+        }
+        if (overlayBounds != null) {
+            deformWholePart(overlay, centerX, rx, ry, rz, tx, ty, tz);
+        }
+        PlayerPoseClient.publishJointPivot(boneName,
+            limb.x + centerX, limb.y + midY, limb.z);
+    }
+
+    private static void deformWholePart(ModelPart part, float centerX,
+                                        float rx, float ry, float rz,
+                                        float tx, float ty, float tz) {
+        float[] bounds = limbBounds(part);
+        if (bounds == null) return;
+        var partPose = part.getInitialPose();
+        float yOffset = partPose == null ? 0.0F : partPose.y();
+        float seam = (bounds[2] + bounds[3]) / 2.0F + yOffset;
+        deformSlice(part, centerX, seam, rx, ry, rz, tx, ty, tz, null);
+    }
+
+    /** Local-space x/y bounds of all cubes in a part, from the rest polygons. */
+    private static float[] limbBounds(ModelPart part) {
+        float minX = Float.MAX_VALUE, maxX = -Float.MAX_VALUE;
+        float minY = Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
+        List<ModelPart.Cube> cubes = ((ModelPartAccessor) (Object) part).playerpose$cubes();
+        for (ModelPart.Cube cube : cubes) {
+            ModelPart.Polygon[] rest = REST_POLYGONS.computeIfAbsent(cube,
+                c -> c.polygons.clone());
+            for (ModelPart.Polygon polygon : rest) {
+                for (ModelPart.Vertex vertex : polygon.vertices()) {
+                    minX = Math.min(minX, vertex.x());
+                    maxX = Math.max(maxX, vertex.x());
+                    minY = Math.min(minY, vertex.y());
+                    maxY = Math.max(maxY, vertex.y());
+                }
+            }
+        }
+        if (minX > maxX || minY > maxY) return null;
+        return new float[] {minX, maxX, minY, maxY};
     }
 
     private static void deformSlice(ModelPart slice, float centerX, float seam,
                                     float rx, float ry, float rz,
-                                    float tx, float ty, float tz) {
+                                    float tx, float ty, float tz, HipBend hipBend) {
         var slicePose = slice.getInitialPose();
         if (slicePose == null) return;
         float yOffset = slicePose.y();
@@ -198,24 +305,43 @@ public abstract class PoseModelMixin implements PoseModelAccess {
                 ModelPart.Vertex[] old = polygon.vertices();
                 ModelPart.Vertex[] out = new ModelPart.Vertex[old.length];
                 float faceWeight = 0.0F;
+                float faceY = 0.0F;
 
                 for (int v = 0; v < old.length; v++) {
                     ModelPart.Vertex vertex = old[v];
                     float y = yOffset + vertex.y();
                     float weight = bendWeight(y, seam);
                     faceWeight += weight;
+                    faceY += y;
 
                     double[] r = BoneMath.rotateZYX(vertex.x() - centerX, y - seam,
                         vertex.z(), rx * weight, ry * weight, rz * weight);
                     float nx = (float) (r[0] + centerX + tx * weight);
                     float ny = (float) (r[1] + seam + ty * weight - yOffset);
                     float nz = (float) (r[2] + tz * weight);
+
+                    // The hip is a curved offset, not a rotation around one pivot.
+                    // The knee result is moved onto the bent centreline locally,
+                    // then the parent leg part's full rotation is undone so it
+                    // renders exactly the bent curve.
+                    if (hipBend != null) {
+                        double[] hp = hipBend.apply(nx, ny + yOffset, nz);
+                        double[] hq = hipBend.counterRotation(hp[0], hp[1], hp[2]);
+                        nx = (float) hq[0];
+                        ny = (float) (hq[1] - yOffset);
+                        nz = (float) hq[2];
+                    }
                     out[v] = new ModelPart.Vertex(nx, ny, nz, vertex.u(), vertex.v());
                 }
 
                 faceWeight /= old.length;
+                faceY /= old.length;
                 double[] n = BoneMath.rotateZYX(polygon.normal().x(), polygon.normal().y(),
                     polygon.normal().z(), rx * faceWeight, ry * faceWeight, rz * faceWeight);
+                if (hipBend != null) {
+                    double[] hn = hipBend.bendNormal(faceY, n[0], n[1], n[2]);
+                    n = hipBend.counterRotation(hn[0], hn[1], hn[2]);
+                }
                 cube.polygons[p] = new ModelPart.Polygon(out,
                     new Vector3f((float) n[0], (float) n[1], (float) n[2]));
             }
@@ -358,6 +484,19 @@ public abstract class PoseModelMixin implements PoseModelAccess {
     private static void publishChildPivot(String bone, ModelPart parent, String childName) {
         ModelPart part = child(parent, childName);
         if (part == null) return;
+
+        if (bone.endsWith("Shin")) {
+            // The shin marker is bent by the hip centreline, not by the parent's
+            // rigid rotation. Publish the curved position so the gizmo sits on the
+            // knee the user can actually see.
+            HipBend hip = HipBend.of(parent.xRot, parent.yRot, parent.zRot);
+            double[] k = hip.apply(part.x, part.y, part.z);
+            PlayerPoseClient.publishJointPivot(bone,
+                (float) (parent.x + k[0]), (float) (parent.y + k[1]),
+                (float) (parent.z + k[2]));
+            return;
+        }
+
         double[] off = BoneMath.rotateZYX(part.x, part.y, part.z,
             parent.xRot, parent.yRot, parent.zRot);
         PlayerPoseClient.publishJointPivot(bone,
