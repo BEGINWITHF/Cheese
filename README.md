@@ -86,8 +86,9 @@ The editor shows a **COMPAT** badge (hover it for the full list) when something 
 can override the player rig:
 
 - **EMF / OptiFine player CEM** (for example Fresh Animations: Player Extension)
-  replaces the player model and its animations, so poses will not show. Disable that
-  pack or the EMF player model while posing.
+  replaces the player model. The pose is re-applied after EMF's animation, and the
+  pack's one-piece limbs are bent around their midpoint, so forearm/shin bends are an
+  approximation rather than the vanilla sliced mesh. Disable the pack for exact bends.
 - **Player Animator**, **Not Enough Animations**, **Emotecraft**, **Figura** and
   **Physics Mod** can overwrite bone rotations, emulate a pose, or replace the player
   model.
