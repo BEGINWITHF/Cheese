@@ -188,6 +188,22 @@ final class PoseGizmo {
     double centerY() { return centerY; }
 
     /**
+     * Screen angle increases clockwise (GUI Y points down). A right-handed model
+     * rotation around an axis that points toward the camera appears counter-
+     * clockwise, so its dragged angle must be negated. Axes pointing away from the
+     * camera keep the screen direction. Without this, X and Y are reversed for the
+     * default camera while Z happens to be correct.
+     */
+    double rotationSign(int axis) {
+        double[] tip = switch (axis) {
+            case AXIS_X -> project(1.0, 0.0, 0.0);
+            case AXIS_Y -> project(0.0, 1.0, 0.0);
+            default -> project(0.0, 0.0, 1.0);
+        };
+        return tip[2] >= 0.0 ? -1.0 : 1.0;
+    }
+
+    /**
      * Screen-space unit direction of a world axis, or null when that axis points
      * at the camera and cannot be dragged meaningfully.
      */
