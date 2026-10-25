@@ -10,6 +10,8 @@ import net.minecraft.world.item.Items;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 /**
  * Known things that can replace or animate the player rig after this mod has posed
@@ -53,6 +55,9 @@ public final class PoseCompat {
         if (mod("skinlayers3d")) {
             out.add(Component.translatable("playerpose.compat.skinLayers"));
         }
+        if (mod("sodium") && !sodiumEntityRendererDisabled()) {
+            out.add(Component.translatable("playerpose.compat.sodiumEntity"));
+        }
 
         // Vanilla layered models are not driven by the pose either.
         if (mc.player != null) {
@@ -76,6 +81,37 @@ public final class PoseCompat {
 
     private static boolean mod(String id) {
         return FabricLoader.getInstance().isModLoaded(id);
+    }
+
+    /**
+     * Sodium 0.9+ bakes entity cubes and skips the vanilla polygon path, which hides
+     * the per-vertex forearm/shin bends. Tell the player unless they already disabled
+     * that mixin package.
+     */
+    private static boolean sodiumEntityRendererDisabled() {
+        try {
+            Class.forName("net.caffeinemc.mods.sodium.client.render.immediate.model.ModelCuboid",
+                false, PoseCompat.class.getClassLoader());
+        } catch (Throwable olderSodium) {
+            return true;
+        }
+        try {
+            Path file = FabricLoader.getInstance().getConfigDir()
+                .resolve("sodium-mixins.properties");
+            if (!Files.isRegularFile(file)) return false;
+            for (String line : Files.readAllLines(file)) {
+                String text = line.trim();
+                if (text.isEmpty() || text.startsWith("#")) continue;
+                int eq = text.indexOf('=');
+                if (eq < 0) continue;
+                if (text.substring(0, eq).trim().equals("mixin.features.render.entity")) {
+                    return text.substring(eq + 1).trim().equalsIgnoreCase("false");
+                }
+            }
+        } catch (Throwable ignored) {
+            // If the config cannot be read, show the warning rather than hide it.
+        }
+        return false;
     }
 
     private static boolean hasResource(Minecraft mc, String path) {

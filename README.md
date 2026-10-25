@@ -95,6 +95,10 @@ can override the player rig:
 - **Cape / wavey-cape mods** can overwrite the cape bone.
 - **3D Skin Layers** is handled by the compat hook, but its second-layer bending is
   only partial.
+- **Sodium 0.9+** bakes entity cubes and skips the vanilla polygon path, which hides
+  the per-vertex forearm/shin bends. Add
+  `mixin.features.render.entity=false` to `config/sodium-mixins.properties` and
+  restart for correct bending. The editor shows a COMPAT warning when this is not set.
 - Armor and elytra always use separate models (see above).
 
 ## How poses are stored

@@ -47,6 +47,7 @@
   "playerpose.compat.physicsMod": "Physics Mod may override player limb motion",
   "playerpose.compat.capes": "Cape/wavey-cape mods may override cape motion",
   "playerpose.compat.skinLayers": "3D Skin Layers: second-layer bending is only partial",
+  "playerpose.compat.sodiumEntity": "Sodium entity rendering hides forearm/shin bends - set mixin.features.render.entity=false in config/sodium-mixins.properties",
   "playerpose.compat.armor": "Armor is a separate model and will not follow bent limbs",
   "playerpose.compat.elytra": "Elytra is a separate model and cannot be posed",
   "playerpose.savedPosesLabel": "Saved poses",
