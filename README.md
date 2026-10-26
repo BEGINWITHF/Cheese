@@ -26,6 +26,9 @@ and other players see their own game normally.
 - **Usage tint** — a pose row's background follows the share of online players using it:
   unused = no tint, 30% = 30% opacity, 50% = 50%, 100% = opaque.
 - **Unload all** — clears your pose and every remote assignment in one click.
+- **Preview skin** — the Skin button at the top-right of the viewport loads a Mojang
+  player's skin or a local PNG (64x64, or legacy 64x32). It is editor-only, supports
+  Classic/Slim and has an Original skin button.
 - **Clean start** — the panel opens on the Poses tab with nothing selected. Press **New**
   or pick a saved pose before editing.
 - **New / Rename dialog** — names are entered in a modal, not by typing into a name field;
@@ -124,6 +127,24 @@ The `+` button on a saved pose opens the target panel:
 Pose rows are tinted by how many online players currently carry that pose. The online set
 is you plus the tab list. Opacity is the used share: no users = no tint, 30% = 30%, 50% =
 50%, 100% = fully opaque. The selected amber frame and the `+` button stay on top.
+
+## Preview skin
+
+The **Skin** button in the top-right of the viewport changes only the model in the
+editor:
+
+- One input field with a **Player / File** pair (same style as Rotate / Move) beside it.
+  The active mode is highlighted and switching clears the field.
+- In Player mode, type a Mojang name and press **Load** (or Enter).
+- In File mode, paste a path or press **Browse**, then **Load**. Modern 64x64 skins and
+  legacy 64x32 skins both work; legacy skins are expanded so both arms and legs render.
+- The field has no length limit, and a pasted path (a separator or `.png`) is loaded as a
+  file even if the switch still shows Player.
+- **Arms: Classic / Slim** switches the model used for a local file.
+- **Original skin** restores your real skin.
+
+The preview never changes your actual player skin, the entity, or anything sent to the
+server. It is cleared when you close the editor.
 
 ## Compatibility
 
