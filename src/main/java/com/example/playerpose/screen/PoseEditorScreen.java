@@ -6,22 +6,30 @@ import com.example.playerpose.pose.Pose;
 import com.example.playerpose.pose.PoseBone;
 import com.example.playerpose.pose.PoseLog;
 import com.example.playerpose.pose.PoseManager;
+import com.example.playerpose.skin.PreviewSkinManager;
+import com.mojang.blaze3d.platform.NativeImage;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.client.renderer.entity.EntityRenderer;
+import net.minecraft.client.renderer.entity.state.AvatarRenderState;
 import net.minecraft.client.renderer.entity.state.EntityRenderState;
 import net.minecraft.client.renderer.entity.state.LivingEntityRenderState;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.PlayerModelType;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
+import org.lwjgl.PointerBuffer;
+import org.lwjgl.system.MemoryStack;
+import org.lwjgl.util.tinyfd.TinyFileDialogs;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -123,6 +131,30 @@ public class PoseEditorScreen extends Screen {
     private int nameDialogX0, nameDialogY0, nameDialogX1, nameDialogY1;
     private int nameDialogOkX0, nameDialogOkY0, nameDialogOkX1, nameDialogOkY1;
     private int nameDialogCancelX0, nameDialogCancelY0, nameDialogCancelX1, nameDialogCancelY1;
+
+    /** Editor-only skin preview (never changes the real player's skin). */
+    private boolean skinPanelOpen;
+    private EditBox skinInputBox;
+    /** false = the field is a player name, true = a local file path. */
+    private boolean skinUseFile;
+    private Button skinPlayerBtn;
+    private Button skinFileBtn;
+    private int skinModeGroupX0, skinModeGroupY0, skinModeGroupX1, skinModeGroupY1;
+    private PlayerModelType skinModel = PlayerModelType.WIDE;
+    private String skinStatus = "";
+    private Rect skinButtonRect;
+    private Rect skinPanelRect;
+    private Rect skinBrowseRect;
+    private Rect skinLoadRect;
+    private Rect skinModelRect;
+    private Rect skinOriginalRect;
+    private Rect skinCloseRect;
+
+    private record Rect(int x0, int y0, int x1, int y1) {
+        boolean contains(double x, double y) {
+            return x >= x0 && x < x1 && y >= y0 && y < y1;
+        }
+    }
 
     private Button newBtn;
     private Button saveBtn;
@@ -680,6 +712,368 @@ public class PoseEditorScreen extends Screen {
             nameDialogOkY0 + 4, 0xFFFFFFFF);
     }
 
+    // ---- preview skin ----------------------------------------------------
+
+    /** Small "Skin" button in the top-right corner of the viewport. */
+    private void drawSkinButton(GuiGraphicsExtractor graphics, Font font,
+                                int mouseX, int mouseY) {
+        int w = 54;
+        int h = 18;
+        int x = Math.max(vpX0 + 4, vpX1 - w - 6);
+        int y = vpY0 + 6;
+        boolean hover = isOver(mouseX, mouseY, x, y, w, h);
+        graphics.fill(x, y, x + w, y + h, 0xCC14161E);
+        int edge = hover ? 0xFFFFC24A : 0xFF8891A0;
+        graphics.fill(x, y, x + w, y + 1, edge);
+        graphics.fill(x, y + h - 1, x + w, y + h, edge);
+        graphics.fill(x, y, x + 1, y + h, edge);
+        graphics.fill(x + w - 1, y, x + w, y + h, edge);
+        Component label = Component.translatable("playerpose.skin.button");
+        graphics.text(font, label, x + (w - font.width(label)) / 2, y + 5,
+            hover ? 0xFFFFD48A : 0xFFE0E0E0);
+        skinButtonRect = new Rect(x, y, x + w, y + h);
+    }
+
+    private void layoutSkinPanel() {
+        int w = 360;
+        int h = 172;
+        int x = Math.max(8, vpX1 - w - 8);
+        int y = vpY0 + 28;
+        if (y + h > height - STATUS_H - 4) {
+            y = Math.max(4, height - STATUS_H - 4 - h);
+        }
+        if (x + w > width - 4) x = Math.max(4, width - w - 4);
+
+        skinPanelRect = new Rect(x, y, x + w, y + h);
+        if (skinInputBox != null) {
+            skinInputBox.setX(x + 140);
+            skinInputBox.setY(y + 28);
+            skinInputBox.setWidth(208);
+            skinInputBox.setHeight(CTRL_H);
+        }
+        if (skinPlayerBtn != null) {
+            skinPlayerBtn.setX(x + 14);
+            skinPlayerBtn.setY(y + 28);
+            skinPlayerBtn.setWidth(56);
+            skinPlayerBtn.setHeight(CTRL_H);
+        }
+        if (skinFileBtn != null) {
+            skinFileBtn.setX(x + 72);
+            skinFileBtn.setY(y + 28);
+            skinFileBtn.setWidth(56);
+            skinFileBtn.setHeight(CTRL_H);
+        }
+        skinModeGroupX0 = x + 12;
+        skinModeGroupY0 = y + 26;
+        skinModeGroupX1 = x + 130;
+        skinModeGroupY1 = y + 48;
+        skinBrowseRect = new Rect(x + 12, y + 58, x + 98, y + 78);
+        skinLoadRect = new Rect(x + 104, y + 58, x + 190, y + 78);
+        skinModelRect = new Rect(x + 196, y + 58, x + 348, y + 78);
+        skinOriginalRect = new Rect(x + 12, y + 140, x + 130, y + 160);
+        skinCloseRect = new Rect(x + 270, y + 140, x + 348, y + 160);
+    }
+
+    private void drawSkinPanel(GuiGraphicsExtractor graphics, Font font,
+                               int mouseX, int mouseY, float partialTick) {
+        if (!skinPanelOpen) return;
+        layoutSkinPanel();
+        Rect p = skinPanelRect;
+        graphics.fill(p.x0, p.y0, p.x1, p.y1, 0xFF181A22);
+        int edge = 0xFF8891A0;
+        graphics.fill(p.x0, p.y0, p.x1, p.y0 + 1, edge);
+        graphics.fill(p.x0, p.y1 - 1, p.x1, p.y1, edge);
+        graphics.fill(p.x0, p.y0, p.x0 + 1, p.y1, edge);
+        graphics.fill(p.x1 - 1, p.y0, p.x1, p.y1, edge);
+
+        graphics.text(font, Component.translatable("playerpose.skin.title"),
+            p.x0 + 12, p.y0 + 8, 0xFFFFD48A);
+
+        drawSkinAction(graphics, font, skinBrowseRect,
+            Component.translatable("playerpose.skin.browse"), false, mouseX, mouseY);
+        drawSkinAction(graphics, font, skinLoadRect,
+            Component.translatable("playerpose.skin.load"), true, mouseX, mouseY);
+        drawSkinAction(graphics, font, skinModelRect,
+            Component.translatable(skinModel == PlayerModelType.SLIM
+                ? "playerpose.skin.armsSlim" : "playerpose.skin.armsClassic"),
+            false, mouseX, mouseY);
+        drawSkinAction(graphics, font, skinOriginalRect,
+            Component.translatable("playerpose.skin.original"), false, mouseX, mouseY);
+        drawSkinAction(graphics, font, skinCloseRect,
+            Component.translatable("playerpose.skin.close"), false, mouseX, mouseY);
+
+        String status = skinStatus;
+        if (PreviewSkinManager.loading()) {
+            status = Component.translatable("playerpose.skin.loading").getString();
+        }
+        if (status == null || status.isBlank()) {
+            status = skinModeHint();
+        }
+        int thumbSize = 48;
+        int thumbX = p.x1 - thumbSize - 12;
+        int thumbY = p.y0 + 84;
+        int maxW = p.x1 - p.x0 - 24 - thumbSize - 10;
+        int color = status.startsWith("Could") || status.startsWith("Skin must")
+            ? 0xFFFF9A9A : 0xFFAEB6C8;
+        List<String> lines = wrapText(font, status, maxW, 3);
+        for (int line = 0; line < lines.size(); line++) {
+            graphics.text(font, Component.literal(lines.get(line)), p.x0 + 12,
+                p.y0 + 88 + line * 12, color);
+        }
+
+        // Face thumbnail so the selected skin is visible while the panel is open.
+        graphics.fill(thumbX - 1, thumbY - 1, thumbX + thumbSize + 1,
+            thumbY + thumbSize + 1, 0xFF667080);
+        graphics.fill(thumbX, thumbY, thumbX + thumbSize, thumbY + thumbSize,
+            0xFF0B0C10);
+        var face = PreviewSkinManager.pixels();
+        if (face != null && !face.isClosed()) {
+            drawSkinFace(graphics, face, thumbX, thumbY, thumbSize);
+        } else {
+            Component none = Component.translatable("playerpose.skin.noPreview");
+            graphics.text(font, none,
+                thumbX + (thumbSize - font.width(none)) / 2, thumbY + 20,
+                0xFF7A8090);
+        }
+
+        // Widgets draw before this panel; render the controls again on top so the
+        // modal never sits underneath the left-panel buttons.
+        if (skinPlayerBtn != null && skinPlayerBtn.visible) {
+            skinPlayerBtn.extractRenderState(graphics, mouseX, mouseY, partialTick);
+        }
+        if (skinFileBtn != null && skinFileBtn.visible) {
+            skinFileBtn.extractRenderState(graphics, mouseX, mouseY, partialTick);
+        }
+        drawSkinModeGroup(graphics);
+        if (skinInputBox != null && skinInputBox.visible) {
+            skinInputBox.extractRenderState(graphics, mouseX, mouseY, partialTick);
+        }
+    }
+
+    /** Frame around the Player/File pair plus an amber bar on the active one. */
+    private void drawSkinModeGroup(GuiGraphicsExtractor graphics) {
+        if (!skinPanelOpen || skinPlayerBtn == null || skinFileBtn == null) return;
+        graphics.fill(skinModeGroupX0, skinModeGroupY0, skinModeGroupX1,
+            skinModeGroupY0 + 1, 0xFFAAB4D4);
+        graphics.fill(skinModeGroupX0, skinModeGroupY1 - 1, skinModeGroupX1,
+            skinModeGroupY1, 0xFFAAB4D4);
+        graphics.fill(skinModeGroupX0, skinModeGroupY0, skinModeGroupX0 + 1,
+            skinModeGroupY1, 0xFFAAB4D4);
+        graphics.fill(skinModeGroupX1 - 1, skinModeGroupY0, skinModeGroupX1,
+            skinModeGroupY1, 0xFFAAB4D4);
+
+        Button active = skinUseFile ? skinFileBtn : skinPlayerBtn;
+        int x = active.getX();
+        int y = active.getY();
+        int w = active.getWidth();
+        int h = active.getHeight();
+        graphics.fill(x, y, x + w, y + h, 0x33FFD48A);
+        graphics.fill(x + 1, y + h - 2, x + w - 1, y + h, 0xFFFFC24A);
+    }
+
+    private void drawSkinFace(GuiGraphicsExtractor graphics, NativeImage image,
+                              int x, int y, int size) {
+        int cell = Math.max(1, size / 8);
+        for (int py = 0; py < 8; py++) {
+            for (int px = 0; px < 8; px++) {
+                int color = image.getPixel(8 + px, 8 + py);
+                if ((color >>> 24) != 0) {
+                    graphics.fill(x + px * cell, y + py * cell,
+                        x + (px + 1) * cell, y + (py + 1) * cell, color);
+                }
+            }
+        }
+        // Hat/outer head layer.
+        for (int py = 0; py < 8; py++) {
+            for (int px = 0; px < 8; px++) {
+                int color = image.getPixel(40 + px, 8 + py);
+                if (((color >>> 24) & 0xFF) > 8) {
+                    graphics.fill(x + px * cell, y + py * cell,
+                        x + (px + 1) * cell, y + (py + 1) * cell, color);
+                }
+            }
+        }
+    }
+
+    private static List<String> wrapText(Font font, String text, int maxWidth, int maxLines) {
+        List<String> lines = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        for (String word : text.split(" ")) {
+            if (word.isEmpty()) continue;
+            if (font.width(word) > maxWidth) {
+                word = font.plainSubstrByWidth(word, maxWidth);
+            }
+            String candidate = current.length() == 0
+                ? word : current + " " + word;
+            if (font.width(candidate) <= maxWidth) {
+                if (current.length() > 0) current.append(' ');
+                current.append(word);
+            } else {
+                if (current.length() > 0) {
+                    lines.add(current.toString());
+                    current.setLength(0);
+                    if (lines.size() >= maxLines) break;
+                }
+                current.append(word);
+            }
+        }
+        if (lines.size() < maxLines && current.length() > 0) {
+            lines.add(current.toString());
+        }
+        return lines;
+    }
+
+    private void drawSkinAction(GuiGraphicsExtractor graphics, Font font, Rect r,
+                                Component label, boolean primary,
+                                int mouseX, int mouseY) {
+        boolean hover = r.contains(mouseX, mouseY);
+        int fill;
+        if (primary) {
+            fill = hover ? 0xCC4F9A52 : 0xAA356B38;
+        } else {
+            fill = hover ? 0xCC555566 : 0xAA333344;
+        }
+        graphics.fill(r.x0, r.y0, r.x1, r.y1, fill);
+        int edge = hover ? 0xFFFFC24A : 0xFF667080;
+        graphics.fill(r.x0, r.y0, r.x1, r.y0 + 1, edge);
+        graphics.fill(r.x0, r.y1 - 1, r.x1, r.y1, edge);
+        graphics.fill(r.x0, r.y0, r.x0 + 1, r.y1, edge);
+        graphics.fill(r.x1 - 1, r.y0, r.x1, r.y1, edge);
+        graphics.text(font, label, r.x0 + ((r.x1 - r.x0) - font.width(label)) / 2,
+            r.y0 + 4, hover ? 0xFFFFFFFF : 0xFFE0E0E0);
+    }
+
+    private void openSkinPanel() {
+        skinPanelOpen = true;
+        applySkinMode();
+        if (skinStatus == null || skinStatus.isBlank()) {
+            skinStatus = skinModeHint();
+        }
+        layoutSkinPanel();
+        setSkinModeVisible(true);
+        if (skinInputBox != null) {
+            skinInputBox.setVisible(true);
+            setFocused(skinInputBox);
+        }
+    }
+
+    private void setSkinModeVisible(boolean visible) {
+        if (skinPlayerBtn != null) skinPlayerBtn.visible = visible;
+        if (skinFileBtn != null) skinFileBtn.visible = visible;
+    }
+
+    private String skinModeHint() {
+        return Component.translatable(skinUseFile
+            ? "playerpose.skin.modeFileHint"
+            : "playerpose.skin.modePlayerHint").getString();
+    }
+
+    /** Point the single input field at either a player name or a file path. */
+    private void setSkinUseFile(boolean useFile, boolean clear) {
+        skinUseFile = useFile;
+        if (skinInputBox != null) {
+            if (clear) skinInputBox.setValue("");
+            skinInputBox.setHint(Component.translatable(useFile
+                ? "playerpose.skin.fileHint" : "playerpose.skin.playerHint"));
+        }
+    }
+
+    private void applySkinMode() {
+        setSkinUseFile(skinUseFile, false);
+    }
+
+    /** Clicking a segment selects that mode; clicking the active one only refocuses. */
+    private void chooseSkinMode(boolean useFile) {
+        if (skinUseFile != useFile) {
+            setSkinUseFile(useFile, true);
+            skinStatus = skinModeHint();
+        }
+        if (skinInputBox != null) setFocused(skinInputBox);
+    }
+
+    private void closeSkinPanel() {
+        skinPanelOpen = false;
+        setFocused(null);
+        setSkinModeVisible(false);
+        if (skinInputBox != null) {
+            skinInputBox.setVisible(false);
+            skinInputBox.setFocused(false);
+        }
+    }
+
+    private void onSkinStatus(String message) {
+        skinStatus = message == null ? "" : message;
+        if (PreviewSkinManager.skin() != null) {
+            skinModel = PreviewSkinManager.model();
+        }
+    }
+
+    private void loadSkinInput() {
+        if (skinInputBox == null) return;
+        String text = skinInputBox.getValue().trim();
+        if (text.isEmpty()) {
+            onSkinStatus(Component.translatable(skinUseFile
+                ? "playerpose.skin.noFile" : "playerpose.skin.noPlayer").getString());
+            return;
+        }
+        String lower = text.toLowerCase(java.util.Locale.ROOT);
+        boolean looksLikePath = text.contains("\\") || text.contains("/")
+            || lower.endsWith(".png");
+        if (!skinUseFile && looksLikePath) {
+            // A Mojang name can never contain a separator or end in .png; treat it
+            // as a file path even if the mode button was still on Player.
+            setSkinUseFile(true, false);
+        }
+        if (!skinUseFile) {
+            PreviewSkinManager.loadFromPlayer(text, this::onSkinStatus);
+            return;
+        }
+        try {
+            PreviewSkinManager.loadFromFile(java.nio.file.Path.of(text), skinModel,
+                this::onSkinStatus);
+        } catch (Throwable error) {
+            onSkinStatus(Component.translatable("playerpose.skin.badFile").getString());
+        }
+    }
+
+    private void browseSkinFile() {
+        setSkinUseFile(true, true);
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            PointerBuffer filters = stack.mallocPointer(1);
+            filters.put(stack.UTF8("*.png"));
+            filters.flip();
+            String path = TinyFileDialogs.tinyfd_openFileDialog(
+                Component.translatable("playerpose.skin.dialogTitle").getString(),
+                "", filters,
+                Component.translatable("playerpose.skin.dialogFilter").getString(),
+                false);
+            if (path != null && !path.isBlank()) {
+                skinInputBox.setValue(path);
+                loadSkinInput();
+            }
+        } catch (Throwable error) {
+            PoseLog.warn("skin preview: file dialog failed (%s)", error);
+            onSkinStatus(Component.translatable("playerpose.skin.dialogError").getString());
+        }
+    }
+
+    private void toggleSkinModel() {
+        skinModel = skinModel == PlayerModelType.SLIM
+            ? PlayerModelType.WIDE : PlayerModelType.SLIM;
+        if (PreviewSkinManager.skin() != null) {
+            PreviewSkinManager.setModel(skinModel, this::onSkinStatus);
+        } else {
+            onSkinStatus(Component.translatable(skinModel == PlayerModelType.SLIM
+                ? "playerpose.skin.armsSlim" : "playerpose.skin.armsClassic").getString());
+        }
+    }
+
+    private void restoreOriginalSkin() {
+        PreviewSkinManager.clear();
+        skinModel = PlayerModelType.WIDE;
+        onSkinStatus(Component.translatable("playerpose.skin.originalSet").getString());
+    }
+
     // ---- actions ---------------------------------------------------------
 
     private void savePose() {
@@ -1028,6 +1422,25 @@ public class PoseEditorScreen extends Screen {
         super.init();
         Font font = this.font;
 
+        skinInputBox = new EditBox(font, 0, 0, 208, CTRL_H, Component.empty());
+        skinInputBox.setHint(Component.translatable("playerpose.skin.playerHint"));
+        skinInputBox.setMaxLength(Integer.MAX_VALUE);
+        skinInputBox.setVisible(false);
+        addRenderableWidget(skinInputBox);
+
+        skinPlayerBtn = Button.builder(
+            Component.translatable("playerpose.skin.modePlayer"), b -> chooseSkinMode(false))
+            .bounds(0, 0, 56, CTRL_H).build();
+        skinFileBtn = Button.builder(
+            Component.translatable("playerpose.skin.modeFile"), b -> chooseSkinMode(true))
+            .bounds(0, 0, 56, CTRL_H).build();
+        skinPlayerBtn.visible = false;
+        skinFileBtn.visible = false;
+        addRenderableWidget(skinPlayerBtn);
+        addRenderableWidget(skinFileBtn);
+
+        PreviewSkinManager.setActive(true);
+
         // Name bar is drawn by us and is click-to-rename; there is no free-typing
         // field here anymore.
 
@@ -1077,6 +1490,13 @@ public class PoseEditorScreen extends Screen {
         vpY0 = TOP_H;
         vpX1 = Math.max(vpX0 + 80, width - 8);
         vpY1 = Math.max(vpY0 + 80, height - STATUS_H - 4);
+
+        if (skinPanelOpen) {
+            layoutSkinPanel();
+            applySkinMode();
+            setSkinModeVisible(true);
+            skinInputBox.setVisible(true);
+        }
 
         PlayerPoseClient.setEditorPreviewPose(workingPose);
         refreshPoseList();
@@ -1198,6 +1618,7 @@ public class PoseEditorScreen extends Screen {
         drawModeGroup(graphics);
         drawLoadMenu(graphics, font, mouseX, mouseY);
         drawNameDialog(graphics, font, mouseX, mouseY);
+        drawSkinPanel(graphics, font, mouseX, mouseY, partialTick);
 
         if (!compatWarnings.isEmpty() && compatX1 > compatX0
             && isOver(mouseX, mouseY, compatX0, compatY0,
@@ -1234,6 +1655,12 @@ public class PoseEditorScreen extends Screen {
             buildGizmo(graphics, hoverAxis).draw();
         }
         graphics.disableScissor();
+
+        if (!skinPanelOpen) {
+            drawSkinButton(graphics, font, mouseX, mouseY);
+        } else {
+            skinButtonRect = null;
+        }
 
         // The model owns the viewport; the read-out lives in the top strip instead of
         // painting over the head. Long hints scroll instead of being cut off.
@@ -1319,6 +1746,13 @@ public class PoseEditorScreen extends Screen {
         if (renderer == null) return;
 
         EntityRenderState state = renderer.createRenderState(entity, partialTick);
+        if (state instanceof AvatarRenderState avatar) {
+            var preview = PreviewSkinManager.skin();
+            if (preview != null) {
+                // Editor-only: replace the render state's skin, never the player's.
+                avatar.skin = preview;
+            }
+        }
         state.shadowPieces.clear();
         state.outlineColor = 0;
 
@@ -1709,6 +2143,36 @@ public class PoseEditorScreen extends Screen {
 
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        if (skinPanelOpen) {
+            layoutSkinPanel();
+            int mx = (int) event.x();
+            int my = (int) event.y();
+            if (skinBrowseRect != null && skinBrowseRect.contains(mx, my)) {
+                browseSkinFile();
+                return true;
+            }
+            if (skinLoadRect != null && skinLoadRect.contains(mx, my)) {
+                loadSkinInput();
+                return true;
+            }
+            if (skinModelRect != null && skinModelRect.contains(mx, my)) {
+                toggleSkinModel();
+                return true;
+            }
+            if (skinOriginalRect != null && skinOriginalRect.contains(mx, my)) {
+                restoreOriginalSkin();
+                return true;
+            }
+            if (skinCloseRect != null && skinCloseRect.contains(mx, my)) {
+                closeSkinPanel();
+                return true;
+            }
+            if (skinPanelRect != null && skinPanelRect.contains(mx, my)) {
+                // Let the EditBox handle its own clicks.
+                return super.mouseClicked(event, doubleClick);
+            }
+            return true;
+        }
         if (nameDialogOpen) {
             nameDialogLayout();
             int mx = (int) event.x();
@@ -1763,6 +2227,12 @@ public class PoseEditorScreen extends Screen {
             } else {
                 openNameDialog(false);
             }
+            return true;
+        }
+
+        // Editor-only skin preview button, top-right of the viewport.
+        if (skinButtonRect != null && skinButtonRect.contains(event.x(), event.y())) {
+            openSkinPanel();
             return true;
         }
 
@@ -1855,6 +2325,7 @@ public class PoseEditorScreen extends Screen {
 
     @Override
     public boolean mouseDragged(MouseButtonEvent event, double dragX, double dragY) {
+        if (skinPanelOpen) return true;
         if (nameDialogOpen) return true;
         if (activeAxis != PoseGizmo.NONE) {
             if (moveMode) {
@@ -1902,6 +2373,7 @@ public class PoseEditorScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        if (skinPanelOpen) return true;
         if (nameDialogOpen) return true;
         if (loadMenuOpen) {
             if (mouseX >= loadMenuX0 && mouseX < loadMenuX1
@@ -1930,6 +2402,9 @@ public class PoseEditorScreen extends Screen {
 
     @Override
     public boolean charTyped(CharacterEvent event) {
+        if (skinPanelOpen) {
+            return super.charTyped(event);
+        }
         if (nameDialogOpen) {
             int cp = event.codepoint();
             if (cp >= 32
@@ -1943,6 +2418,17 @@ public class PoseEditorScreen extends Screen {
 
     @Override
     public boolean keyPressed(KeyEvent event) {
+        if (skinPanelOpen) {
+            if (event.key() == 256) { // ESC closes the skin panel, not the editor
+                closeSkinPanel();
+                return true;
+            }
+            if (event.key() == 257 || event.key() == 335) { // ENTER / keypad ENTER
+                loadSkinInput();
+                return true;
+            }
+            return super.keyPressed(event);
+        }
         if (nameDialogOpen) {
             if (event.key() == 256) { // ESC cancels
                 closeNameDialog();
@@ -2021,6 +2507,7 @@ public class PoseEditorScreen extends Screen {
             PlayerPoseClient.getActivePoseName() == null ? "none" : "'" + PlayerPoseClient.getActivePoseName() + "'");
         PlayerPoseClient.setEditorPreviewPose(null);
         PlayerPoseClient.setPoseEditorOpen(false);
+        PreviewSkinManager.setActive(false);
         PoseLog.dumpPoses(poseManager, "editor close");
     }
 
