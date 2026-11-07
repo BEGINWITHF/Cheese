@@ -24,6 +24,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -50,6 +51,31 @@ public final class PreviewSkinManager {
     });
     private static final String USER_AGENT = "Cheese/2.0.0 (Minecraft mod)";
 
+    /** An official cape texture bundled with the mod. */
+    public record OfficialCape(String id, String label) {}
+
+    /** Menu order for the bundled official capes. */
+    public static final List<OfficialCape> OFFICIAL_CAPES = List.of(
+        new OfficialCape("migrator", "Migrator"),
+        new OfficialCape("mojang", "Mojang"),
+        new OfficialCape("mojang_studios", "Mojang Studios"),
+        new OfficialCape("mojang_classic", "Mojang Classic"),
+        new OfficialCape("vanilla", "Vanilla"),
+        new OfficialCape("common", "Common"),
+        new OfficialCape("pan", "Pan"),
+        new OfficialCape("mapmaker", "Mapmaker"),
+        new OfficialCape("translator", "Translator"),
+        new OfficialCape("translator_cn", "Translator CN"),
+        new OfficialCape("cherry", "Cherry"),
+        new OfficialCape("purple_heart", "Purple Heart"),
+        new OfficialCape("followers", "Follower's"),
+        new OfficialCape("anniversary_15", "15th Anniv."),
+        new OfficialCape("experience", "Experience"),
+        new OfficialCape("minecon_2011", "Minecon 2011"),
+        new OfficialCape("minecon_2016", "Minecon 2016"),
+        new OfficialCape("turtle", "Turtle")
+    );
+
     private static volatile boolean active;
     private static volatile boolean loading;
     private static volatile boolean demo;
@@ -63,6 +89,10 @@ public final class PreviewSkinManager {
     private static ClientAsset.Texture bodyTexture;
     private static ClientAsset.Texture demoCapeTexture;
     private static Identifier demoCapeId;
+    private static ClientAsset.Texture chosenCapeTexture;
+    private static Identifier chosenCapeId;
+    private static NativeImage chosenCapePixels;
+    private static String chosenCapeKey = "";
     private static ClientAsset.Texture fetchedCapeTexture;
     private static Identifier fetchedCapeId;
     private static ClientAsset.Texture fetchedElytraTexture;
@@ -102,8 +132,9 @@ public final class PreviewSkinManager {
         return active && demoCape;
     }
 
-    /** The cape the editor should render: the demo one if loaded, else the real one. */
+    /** The cape the editor should render: a picked cape, then the demo one, then the real one. */
     public static ClientAsset.Texture effectiveCape() {
+        if (chosenCapeTexture != null) return chosenCapeTexture;
         if (demoCapeTexture != null) return demoCapeTexture;
         // A player preview owns the slot: they may have no cape at all, and the local
         // player's cape must not leak onto their back.
@@ -168,10 +199,122 @@ public final class PreviewSkinManager {
         }
     }
 
+    /** Pixels of the picked cape, for the panel thumbnail; null when none is picked. */
+    public static NativeImage capePixels() {
+        return chosenCapePixels != null && !chosenCapePixels.isClosed()
+            ? chosenCapePixels : null;
+    }
+
+    /** Which menu entry is picked ("migrator", "file", ...); empty when none. */
+    public static String chosenCapeKey() {
+        return chosenCapeKey;
+    }
+
+    /** Use a bundled official cape texture for the preview. */
+    public static void selectOfficialCape(OfficialCape cape, Consumer<String> feedback) {
+        Identifier id = Identifier.fromNamespaceAndPath("player-pose",
+            "textures/cape/official/" + cape.id() + ".png");
+        var resource = Minecraft.getInstance().getResourceManager().getResource(id);
+        if (resource.isEmpty()) {
+            feedback.accept("Cape texture missing");
+            return;
+        }
+        try (var in = resource.get().open()) {
+            NativeImage image = NativeImage.read(in);
+            if (!applyCapeImage(image, cape.id())) {
+                image.close();
+                feedback.accept("Cape must be a 64x32 PNG");
+                return;
+            }
+            feedback.accept("Cape: " + cape.label());
+        } catch (Throwable error) {
+            PoseLog.warn("skin preview: official cape '%s' failed (%s)", cape.id(), error);
+            feedback.accept("Could not load that cape");
+        }
+    }
+
+    /** Read and apply a 64x32 cape PNG from disk, off the render thread. */
+    public static void importCapeFile(Path path, Consumer<String> feedback) {
+        if (path == null) {
+            feedback.accept("Choose a cape PNG");
+            return;
+        }
+        CompletableFuture.runAsync(() -> {
+            try {
+                byte[] bytes = Files.readAllBytes(path);
+                NativeImage image = NativeImage.read(bytes);
+                Minecraft.getInstance().execute(() -> {
+                    if (!active) {
+                        image.close();
+                        return;
+                    }
+                    if (applyCapeImage(image, "file")) {
+                        feedback.accept("Cape: " + path.getFileName());
+                    } else {
+                        image.close();
+                        feedback.accept("Cape must be a 64x32 PNG");
+                    }
+                });
+            } catch (Throwable error) {
+                PoseLog.warn("skin preview: cape file '%s' failed (%s)", path, error);
+                Minecraft.getInstance().execute(
+                    () -> feedback.accept("Could not read that cape PNG"));
+            }
+        }, WORKER);
+    }
+
+    /** Drop the picked cape and the demo cape, going back to the real one. */
+    public static void clearPreviewCape(Consumer<String> feedback) {
+        releaseChosenCape();
+        clearDemoCape();
+        rebuildSkin();
+        version++;
+        EyelidManager.onBaseChanged();
+        feedback.accept("Original cape");
+    }
+
+    private static boolean applyCapeImage(NativeImage image, String key) {
+        if (image.getWidth() != 64 || image.getHeight() != 32) return false;
+        releaseChosenCape();
+        Identifier id = Identifier.fromNamespaceAndPath("player-pose",
+            "preview/cape_" + (counter++));
+        DynamicTexture texture = new DynamicTexture(() -> "cheese preview cape", image);
+        Minecraft.getInstance().getTextureManager().register(id, texture);
+        chosenCapeId = id;
+        chosenCapeTexture = new ClientAsset.ResourceTexture(id, id);
+        chosenCapePixels = image;
+        chosenCapeKey = key == null ? "" : key;
+        clearDemoCape();
+        rebuildSkin();
+        version++;
+        EyelidManager.onBaseChanged();
+        PoseLog.info("skin preview: cape '%s' (%dx%d)", chosenCapeKey,
+            image.getWidth(), image.getHeight());
+        return true;
+    }
+
+    private static void releaseChosenCape() {
+        chosenCapeTexture = null;
+        chosenCapePixels = null;
+        chosenCapeKey = "";
+        if (chosenCapeId != null) {
+            try {
+                Minecraft.getInstance().getTextureManager().release(chosenCapeId);
+            } catch (Throwable ignored) {
+                // already released by a resource reload
+            }
+            chosenCapeId = null;
+        }
+    }
+
     /** Rebuild the preview PlayerSkin from whatever body/cape are currently active. */
     private static void rebuildSkin() {
         Minecraft mc = Minecraft.getInstance();
         PlayerSkin original = mc.player != null ? mc.player.getSkin() : null;
+        if (bodyTexture == null && original != null) {
+            // No preview body: the model must match the player's real skin.
+            model = original.model();
+        }
         ClientAsset.Texture body = bodyTexture != null ? bodyTexture
             : (original != null ? original.body() : null);
         if (body == null) {
@@ -180,7 +323,12 @@ public final class PreviewSkinManager {
         }
         ClientAsset.Texture capeTex;
         ClientAsset.Texture elytraTex;
-        if (fetchedGear) {
+        if (chosenCapeTexture != null) {
+            capeTex = chosenCapeTexture;
+            // Vanilla capes also provide the elytra art, so keep that preview consistent.
+            elytraTex = fetchedElytraTexture != null ? fetchedElytraTexture
+                : chosenCapeTexture;
+        } else if (fetchedGear) {
             capeTex = demoCapeTexture != null ? demoCapeTexture : fetchedCapeTexture;
             // No ELYTRA entry in that profile? Keep the usual elytra texture; passing
             // null would let the cape texture fall through onto the wings.
@@ -203,6 +351,10 @@ public final class PreviewSkinManager {
         active = value;
         if (!value) {
             releaseTexture();
+            releaseChosenCape();
+            clearDemoCape();
+            fetchedGear = false;
+            demo = false;
             skin = null;
             status = "";
             loading = false;
@@ -215,12 +367,15 @@ public final class PreviewSkinManager {
         cape = null;
         elytra = null;
         bodyTexture = null;
-        clearDemoCape();
         fetchedGear = false;
         demo = false;
         version++;
         status = "";
         loading = false;
+        // Original skin keeps whatever cape the Cape tab picked; it only drops the body.
+        if (active && (chosenCapeTexture != null || demoCapeTexture != null)) {
+            rebuildSkin();
+        }
         EyelidManager.onBaseChanged();
     }
 

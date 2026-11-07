@@ -151,6 +151,15 @@ public class PoseEditorScreen extends Screen {
     private Rect skinModelRect;
     private Rect skinOriginalRect;
     private Rect skinCloseRect;
+    /** 0 = skin tab, 1 = cape tab. */
+    private int skinTab;
+    private Rect skinTabSkinRect;
+    private Rect skinTabCapeRect;
+    private final Rect[] capeEntryRects =
+        new Rect[PreviewSkinManager.OFFICIAL_CAPES.size()];
+    private Rect capeImportRect;
+    private Rect capeOriginalRect;
+    private Rect capeCloseRect;
 
     /** Editor-only eyelid preview. */
     private boolean eyesPanelOpen;
@@ -924,8 +933,9 @@ public class PoseEditorScreen extends Screen {
     }
 
     private void layoutSkinPanel() {
+        boolean capeTab = skinTab == 1;
         int w = 360;
-        int h = 172;
+        int h = capeTab ? 200 : 172;
         int x = Math.max(8, vpX1 - w - 8);
         int y = vpY0 + 28;
         if (y + h > height - STATUS_H - 4) {
@@ -934,11 +944,51 @@ public class PoseEditorScreen extends Screen {
         if (x + w > width - 4) x = Math.max(4, width - w - 4);
 
         skinPanelRect = new Rect(x, y, x + w, y + h);
+
+        // "Skin / Cape" tabs share the old title row.
+        int tabX = x + 12;
+        int tabY = y + 8;
+        int skinW = font.width(Component.translatable("playerpose.skin.tabSkin"));
+        int slashW = font.width(" / ");
+        int capeW = font.width(Component.translatable("playerpose.skin.tabCape"));
+        skinTabSkinRect = new Rect(tabX - 2, tabY - 2, tabX + skinW + 2, tabY + 11);
+        skinTabCapeRect = new Rect(tabX + skinW + slashW - 2, tabY - 2,
+            tabX + skinW + slashW + capeW + 2, tabY + 11);
+
+        for (int i = 0; i < capeEntryRects.length; i++) capeEntryRects[i] = null;
+        capeImportRect = null;
+        capeOriginalRect = null;
+        capeCloseRect = null;
+
+        if (capeTab) {
+            setSkinModeVisible(false);
+            if (skinInputBox != null) {
+                skinInputBox.setVisible(false);
+                skinInputBox.setFocused(false);
+            }
+            int colW = 109;
+            int gap = 5;
+            int top = y + 28;
+            for (int i = 0; i < capeEntryRects.length; i++) {
+                int col = i % 3;
+                int row = i / 3;
+                int ex = x + 12 + col * (colW + gap);
+                int ey = top + row * 16;
+                capeEntryRects[i] = new Rect(ex, ey, ex + colW, ey + 15);
+            }
+            capeImportRect = new Rect(x + 12, y + 166, x + 120, y + 186);
+            capeOriginalRect = new Rect(x + 126, y + 166, x + 240, y + 186);
+            capeCloseRect = new Rect(x + 246, y + 166, x + 348, y + 186);
+            return;
+        }
+
+        setSkinModeVisible(true);
         if (skinInputBox != null) {
             skinInputBox.setX(x + 140);
             skinInputBox.setY(y + 28);
             skinInputBox.setWidth(208);
             skinInputBox.setHeight(CTRL_H);
+            skinInputBox.setVisible(true);
         }
         if (skinPlayerBtn != null) {
             skinPlayerBtn.setX(x + 14);
@@ -975,8 +1025,12 @@ public class PoseEditorScreen extends Screen {
         graphics.fill(p.x0, p.y0, p.x0 + 1, p.y1, edge);
         graphics.fill(p.x1 - 1, p.y0, p.x1, p.y1, edge);
 
-        graphics.text(font, Component.translatable("playerpose.skin.title"),
-            p.x0 + 12, p.y0 + 8, 0xFFFFD48A);
+        drawSkinTabs(graphics, font, mouseX, mouseY);
+
+        if (skinTab == 1) {
+            drawCapeTab(graphics, font, mouseX, mouseY);
+            return;
+        }
 
         drawSkinAction(graphics, font, skinBrowseRect,
             Component.translatable("playerpose.skin.browse"), false, mouseX, mouseY);
@@ -1003,6 +1057,8 @@ public class PoseEditorScreen extends Screen {
         int thumbY = p.y0 + 84;
         int maxW = p.x1 - p.x0 - 24 - thumbSize - 10;
         int color = status.startsWith("Could") || status.startsWith("Skin must")
+            || status.startsWith("Cape must") || status.startsWith("Cape texture")
+            || status.startsWith("Choose a cape")
             ? 0xFFFF9A9A : 0xFFAEB6C8;
         List<String> lines = wrapText(font, status, maxW, 3);
         for (int line = 0; line < lines.size(); line++) {
@@ -1036,6 +1092,88 @@ public class PoseEditorScreen extends Screen {
         drawSkinModeGroup(graphics);
         if (skinInputBox != null && skinInputBox.visible) {
             skinInputBox.extractRenderState(graphics, mouseX, mouseY, partialTick);
+        }
+    }
+
+    /** "Skin / Cape" header: two clickable words sharing the old title row. */
+    private void drawSkinTabs(GuiGraphicsExtractor graphics, Font font,
+                              int mouseX, int mouseY) {
+        Rect p = skinPanelRect;
+        Component skin = Component.translatable("playerpose.skin.tabSkin");
+        Component cape = Component.translatable("playerpose.skin.tabCape");
+        int tx = p.x0 + 12;
+        int ty = p.y0 + 8;
+        boolean skinHover = skinTabSkinRect != null && skinTabSkinRect.contains(mouseX, mouseY);
+        boolean capeHover = skinTabCapeRect != null && skinTabCapeRect.contains(mouseX, mouseY);
+        graphics.text(font, skin, tx, ty, skinTab == 0 ? 0xFFFFD48A
+            : skinHover ? 0xFFFFFFFF : 0xFF9AA3B4);
+        int slashX = tx + font.width(skin);
+        graphics.text(font, Component.literal(" / "), slashX, ty, 0xFF667080);
+        int capeX = slashX + font.width(" / ");
+        graphics.text(font, cape, capeX, ty, skinTab == 1 ? 0xFFFFD48A
+            : capeHover ? 0xFFFFFFFF : 0xFF9AA3B4);
+    }
+
+    private void drawCapeTab(GuiGraphicsExtractor graphics, Font font,
+                             int mouseX, int mouseY) {
+        Rect p = skinPanelRect;
+        String chosen = PreviewSkinManager.chosenCapeKey();
+        for (int i = 0; i < PreviewSkinManager.OFFICIAL_CAPES.size()
+            && i < capeEntryRects.length; i++) {
+            Rect r = capeEntryRects[i];
+            if (r == null) continue;
+            PreviewSkinManager.OfficialCape cape = PreviewSkinManager.OFFICIAL_CAPES.get(i);
+            boolean selected = cape.id().equals(chosen);
+            boolean hover = r.contains(mouseX, mouseY);
+            graphics.fill(r.x0, r.y0, r.x1, r.y1,
+                selected ? 0x66443322 : hover ? 0x33FFFFFF : 0x222A2E3A);
+            int border = selected ? 0xFFFFC24A : hover ? 0xFF8891A0 : 0xFF3E4862;
+            graphics.fill(r.x0, r.y0, r.x1, r.y0 + 1, border);
+            graphics.fill(r.x0, r.y1 - 1, r.x1, r.y1, border);
+            graphics.fill(r.x0, r.y0, r.x0 + 1, r.y1, border);
+            graphics.fill(r.x1 - 1, r.y0, r.x1, r.y1, border);
+            String label = font.plainSubstrByWidth(cape.label(), r.x1 - r.x0 - 8);
+            graphics.text(font, Component.literal(label), r.x0 + 4, r.y0 + 4,
+                selected ? 0xFFFFD48A : 0xFFD0D0D0);
+        }
+
+        String status = skinStatus;
+        if (status == null || status.isBlank()) {
+            status = Component.translatable("playerpose.cape.hint").getString();
+        }
+        boolean error = status.startsWith("Cape must") || status.startsWith("Cape texture")
+            || status.startsWith("Could") || status.startsWith("Choose");
+        drawWrapped(graphics, font, status, p.x0 + 12, p.y0 + 128,
+            p.x1 - p.x0 - 24 - 34, 2, error ? 0xFFFF9A9A : 0xFFAEB6C8);
+
+        // Small front view of the picked cape.
+        int scale = 2;
+        int tx = p.x1 - 12 - 10 * scale;
+        int ty = p.y0 + 126;
+        graphics.fill(tx - 1, ty - 1, tx + 10 * scale + 1, ty + 16 * scale + 1,
+            0xFF667080);
+        graphics.fill(tx, ty, tx + 10 * scale, ty + 16 * scale, 0xFF0B0C10);
+        drawCapeThumb(graphics, tx, ty, scale);
+
+        drawSkinAction(graphics, font, capeImportRect,
+            Component.translatable("playerpose.cape.import"), true, mouseX, mouseY);
+        drawSkinAction(graphics, font, capeOriginalRect,
+            Component.translatable("playerpose.cape.original"), false, mouseX, mouseY);
+        drawSkinAction(graphics, font, capeCloseRect,
+            Component.translatable("playerpose.skin.close"), false, mouseX, mouseY);
+    }
+
+    /** Draw the cape texture's front region (10x16) scaled up. */
+    private void drawCapeThumb(GuiGraphicsExtractor graphics, int x, int y, int scale) {
+        NativeImage image = PreviewSkinManager.capePixels();
+        if (image == null || image.isClosed()) return;
+        for (int py = 0; py < 16; py++) {
+            for (int px = 0; px < 10; px++) {
+                int color = image.getPixel(px, py);
+                if ((color >>> 24) == 0) continue;
+                graphics.fill(x + px * scale, y + py * scale,
+                    x + (px + 1) * scale, y + (py + 1) * scale, color);
+            }
         }
     }
 
@@ -1303,6 +1441,7 @@ public class PoseEditorScreen extends Screen {
     private void openSkinPanel() {
         if (eyesPanelOpen) closeEyesPanel();
         skinPanelOpen = true;
+        skinTab = 0;
         applySkinMode();
         if (skinStatus == null || skinStatus.isBlank()) {
             skinStatus = skinModeHint();
@@ -1540,6 +1679,26 @@ public class PoseEditorScreen extends Screen {
         }
     }
 
+    private void browseCapeFile() {
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            PointerBuffer filters = stack.mallocPointer(1);
+            filters.put(stack.UTF8("*.png"));
+            filters.flip();
+            String path = TinyFileDialogs.tinyfd_openFileDialog(
+                Component.translatable("playerpose.cape.dialogTitle").getString(),
+                "", filters,
+                Component.translatable("playerpose.cape.dialogFilter").getString(),
+                false);
+            if (path != null && !path.isBlank()) {
+                PreviewSkinManager.importCapeFile(java.nio.file.Path.of(path),
+                    this::onSkinStatus);
+            }
+        } catch (Throwable error) {
+            PoseLog.warn("skin preview: cape file dialog failed (%s)", error);
+            onSkinStatus(Component.translatable("playerpose.skin.dialogError").getString());
+        }
+    }
+
     private void toggleSkinModel() {
         skinModel = skinModel == PlayerModelType.SLIM
             ? PlayerModelType.WIDE : PlayerModelType.SLIM;
@@ -1553,7 +1712,7 @@ public class PoseEditorScreen extends Screen {
 
     private void restoreOriginalSkin() {
         PreviewSkinManager.clear();
-        skinModel = PlayerModelType.WIDE;
+        skinModel = PreviewSkinManager.model();
         onSkinStatus(Component.translatable("playerpose.skin.originalSet").getString());
     }
 
@@ -2942,6 +3101,41 @@ public class PoseEditorScreen extends Screen {
             layoutSkinPanel();
             int mx = (int) event.x();
             int my = (int) event.y();
+            if (skinTabSkinRect != null && skinTabSkinRect.contains(mx, my)) {
+                skinTab = 0;
+                applySkinMode();
+                if (skinInputBox != null) setFocused(skinInputBox);
+                return true;
+            }
+            if (skinTabCapeRect != null && skinTabCapeRect.contains(mx, my)) {
+                skinTab = 1;
+                setFocused(null);
+                return true;
+            }
+            if (skinTab == 1) {
+                for (int i = 0; i < capeEntryRects.length
+                    && i < PreviewSkinManager.OFFICIAL_CAPES.size(); i++) {
+                    Rect r = capeEntryRects[i];
+                    if (r != null && r.contains(mx, my)) {
+                        PreviewSkinManager.selectOfficialCape(
+                            PreviewSkinManager.OFFICIAL_CAPES.get(i), this::onSkinStatus);
+                        return true;
+                    }
+                }
+                if (capeImportRect != null && capeImportRect.contains(mx, my)) {
+                    browseCapeFile();
+                    return true;
+                }
+                if (capeOriginalRect != null && capeOriginalRect.contains(mx, my)) {
+                    PreviewSkinManager.clearPreviewCape(this::onSkinStatus);
+                    return true;
+                }
+                if (capeCloseRect != null && capeCloseRect.contains(mx, my)) {
+                    closeSkinPanel();
+                    return true;
+                }
+                return true;
+            }
             if (skinBrowseRect != null && skinBrowseRect.contains(mx, my)) {
                 browseSkinFile();
                 return true;
@@ -3249,6 +3443,7 @@ public class PoseEditorScreen extends Screen {
         if (sodiumDialogOpen) return true;
         if (eyesPanelOpen) return true;
         if (skinPanelOpen) {
+            if (skinTab == 1) return true;
             return super.charTyped(event);
         }
         if (nameDialogOpen) {
@@ -3283,6 +3478,7 @@ public class PoseEditorScreen extends Screen {
                 closeSkinPanel();
                 return true;
             }
+            if (skinTab == 1) return true;
             if (event.key() == 257 || event.key() == 335) { // ENTER / keypad ENTER
                 loadSkinInput();
                 return true;
