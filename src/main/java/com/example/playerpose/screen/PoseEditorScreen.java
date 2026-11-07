@@ -6,6 +6,7 @@ import com.example.playerpose.pose.Pose;
 import com.example.playerpose.pose.PoseBone;
 import com.example.playerpose.pose.PoseLog;
 import com.example.playerpose.pose.PoseManager;
+import com.example.playerpose.skin.EyelidManager;
 import com.example.playerpose.skin.PreviewSkinManager;
 import com.mojang.blaze3d.platform.NativeImage;
 import net.minecraft.client.Minecraft;
@@ -23,6 +24,7 @@ import net.minecraft.client.renderer.entity.state.AvatarRenderState;
 import net.minecraft.client.renderer.entity.state.EntityRenderState;
 import net.minecraft.client.renderer.entity.state.LivingEntityRenderState;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.Util;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.PlayerModelType;
 import org.joml.Quaternionf;
@@ -106,7 +108,7 @@ public class PoseEditorScreen extends Screen {
         {1.9F, 18.0F, 0.0F},   // leftShin (knee centre)
         {-1.9F, 12.0F, 0.0F},  // rightLeg
         {-1.9F, 18.0F, 0.0F},  // rightShin (knee centre)
-        {0.0F, 0.0F, 2.0F}     // cape
+        {0.0F, 0.0F, 2.0F}     // cape / elytra (one bone, whichever is worn)
     };
 
     private final PoseManager poseManager;
@@ -150,6 +152,26 @@ public class PoseEditorScreen extends Screen {
     private Rect skinOriginalRect;
     private Rect skinCloseRect;
 
+    /** Editor-only eyelid preview. */
+    private boolean eyesPanelOpen;
+    /** True while the eyes are the edit target, even after the sliders are closed. */
+    private boolean eyesSelected;
+    private boolean eyesPrompt;
+    private boolean eyesLoading;
+    private String eyesMessage = "";
+    private Rect eyesButtonRect;
+    private Rect eyesPanelRect;
+    private Rect eyesFormatSpiceRect;
+    private Rect eyesFormatJeRect;
+    private Rect eyesLeftSlider;
+    private Rect eyesRightSlider;
+    private Rect eyesDemoRect;
+    private Rect eyesCloseRect;
+    private Rect eyesYesRect;
+    private Rect eyesNoRect;
+    private boolean draggingLeftEye;
+    private boolean draggingRightEye;
+
     private record Rect(int x0, int y0, int x1, int y1) {
         boolean contains(double x, double y) {
             return x >= x0 && x < x1 && y >= y0 && y < y1;
@@ -173,6 +195,32 @@ public class PoseEditorScreen extends Screen {
     private List<Component> compatWarnings = new ArrayList<>();
     private boolean compatLogged;
     private int compatX0, compatY0, compatX1, compatY1;
+
+    /**
+     * Sodium conflict helper. The prompt is offered once per game session and can be
+     * reopened by clicking the COMPAT badge while the conflict is still detected.
+     */
+    private static final String SODIUM_GUIDE_URL = "https://example.com/player-pose/sodium"; // TODO: real guide
+    private static boolean sodiumPromptShown;
+    private boolean sodiumDialogOpen;
+    private boolean sodiumDialogFixed;
+    private String sodiumDialogError = "";
+    private int sodiumX0, sodiumY0, sodiumX1, sodiumY1;
+    private Rect sodiumConfirmRect;
+    private Rect sodiumCancelRect;
+    private Rect sodiumLinkRect;
+
+    /** Elytra opening angles, radians, edited by the three viewport sliders. */
+    private static final float ELYTRA_SPREAD_MAX = 1.31F; // ~75 degrees
+    private float elytraSpreadX;
+    private float elytraSpreadY;
+    private float elytraSpreadZ;
+    private final Rect[] elytraSliderRects = new Rect[3];
+    private int draggingElytraAxis = -1;
+    /** The elytra control panel starts open and the user can fold it away. */
+    private boolean elytraPanelOpen = true;
+    private Rect capeDemoRect;
+    private Rect elytraToggleRect;
     private List<String> savedPoseNames = new ArrayList<>();
     /** 0 = bone list, 1 = saved-pose list. */
     private int listTab;
@@ -267,6 +315,26 @@ public class PoseEditorScreen extends Screen {
             rotX = 0; rotY = 0; rotZ = 0;
             tX = 0; tY = 0; tZ = 0;
         }
+        PoseBone spread = findBone("elytraSpread");
+        elytraSpreadX = spread == null ? 0.0F : (float) spread.x;
+        elytraSpreadY = spread == null ? 0.0F : (float) spread.y;
+        elytraSpreadZ = spread == null ? 0.0F : (float) spread.z;
+    }
+
+    /** Write the three elytra opening angles back into the pose as one pseudo-bone. */
+    private void commitElytraSpread() {
+        if (workingPose == null) return;
+        if (workingPose.getBones() == null) workingPose.setBones(new ArrayList<>());
+        List<PoseBone> bones = workingPose.getBones();
+        PoseBone value = new PoseBone("elytraSpread",
+            elytraSpreadX, elytraSpreadY, elytraSpreadZ);
+        for (int i = 0; i < bones.size(); i++) {
+            if ("elytraSpread".equals(bones.get(i).bone)) {
+                bones.set(i, value);
+                return;
+            }
+        }
+        bones.add(value);
     }
 
     /** Write the working values for the selected row back into the pose. */
@@ -292,6 +360,7 @@ public class PoseEditorScreen extends Screen {
     }
 
     private void selectRow(String row) {
+        deselectEyes();
         setTab(0);
         selected = row;
         selectionVisible = true;
@@ -377,6 +446,7 @@ public class PoseEditorScreen extends Screen {
         PlayerPoseClient.setEditorPreviewPose(workingPose);
         editingPose = true;
         originalName = p.getName();
+        deselectEyes();
         selected = "body";
         syncFromPose();
         refreshPoseList();
@@ -714,6 +784,125 @@ public class PoseEditorScreen extends Screen {
 
     // ---- preview skin ----------------------------------------------------
 
+    private void sodiumDialogLayout() {
+        int w = 400;
+        int h = 206;
+        sodiumX0 = Math.max(4, (width - w) / 2);
+        sodiumY0 = Math.max(4, (height - h) / 2);
+        sodiumX1 = sodiumX0 + w;
+        sodiumY1 = sodiumY0 + h;
+        int by = sodiumY0 + 178;
+        int bh = 18;
+        int confirmW = 78;
+        sodiumConfirmRect = new Rect(sodiumX1 - 12 - confirmW, by,
+            sodiumX1 - 12, by + bh);
+        sodiumCancelRect = sodiumDialogFixed ? null
+            : new Rect(sodiumConfirmRect.x0 - 8 - 86, by,
+                sodiumConfirmRect.x0 - 8, by + bh);
+        int linkW = font.width(Component.translatable("playerpose.sodium.link"));
+        sodiumLinkRect = new Rect(sodiumX0 + 10, sodiumY0 + 155,
+            sodiumX0 + 14 + linkW, sodiumY0 + 171);
+    }
+
+    private void drawSodiumDialog(GuiGraphicsExtractor graphics, Font font,
+                                  int mouseX, int mouseY) {
+        if (!sodiumDialogOpen) return;
+        sodiumDialogLayout();
+        graphics.fill(0, 0, width, height, 0x99000000);
+        graphics.fill(sodiumX0, sodiumY0, sodiumX1, sodiumY1, 0xFF181A22);
+        graphics.fill(sodiumX0, sodiumY0, sodiumX1, sodiumY0 + 1, 0xFF8891A0);
+        graphics.fill(sodiumX0, sodiumY1 - 1, sodiumX1, sodiumY1, 0xFF8891A0);
+        graphics.fill(sodiumX0, sodiumY0, sodiumX0 + 1, sodiumY1, 0xFF8891A0);
+        graphics.fill(sodiumX1 - 1, sodiumY0, sodiumX1, sodiumY1, 0xFF8891A0);
+
+        Component title = Component.translatable("playerpose.sodium.title");
+        graphics.text(font, title, sodiumX0 + 12, sodiumY0 + 10, 0xFFFFD48A);
+
+        String body1;
+        String body2;
+        int body1Color = 0xFFD0D0D0;
+        if (sodiumDialogFixed) {
+            body1 = Component.translatable("playerpose.sodium.fixed").getString();
+            body2 = Component.translatable("playerpose.sodium.restart").getString();
+            body1Color = 0xFF7FD46A;
+        } else if (!sodiumDialogError.isEmpty()) {
+            body1 = Component.translatable("playerpose.sodium.failed").getString();
+            body2 = sodiumDialogError;
+            body1Color = 0xFFFF8080;
+        } else {
+            body1 = Component.translatable("playerpose.sodium.body").getString();
+            body2 = Component.translatable("playerpose.sodium.change").getString();
+        }
+        int textX = sodiumX0 + 12;
+        int textW = sodiumX1 - sodiumX0 - 24;
+        drawWrapped(graphics, font, body1, textX, sodiumY0 + 28, textW, 3, body1Color);
+        drawWrapped(graphics, font, body2, textX, sodiumY0 + 62, textW, 3, 0xFFD0D0D0);
+
+        // The exact file and line this button changes.
+        graphics.text(font, Component.literal("config/sodium-mixins.properties"),
+            textX, sodiumY0 + 96, 0xFF9FC4FF);
+        graphics.text(font, Component.literal("mixin.features.render.entity = false"),
+            textX, sodiumY0 + 108, 0xFF9FC4FF);
+
+        drawWrapped(graphics, font,
+            Component.translatable("playerpose.sodium.restore").getString(),
+            textX, sodiumY0 + 124, textW, 3, 0xFFB0B6C4);
+
+        Component link = Component.translatable("playerpose.sodium.link");
+        int linkW = font.width(link);
+        graphics.text(font, link, textX, sodiumY0 + 158, 0xFFFFC24A);
+        graphics.fill(textX, sodiumY0 + 168, textX + linkW, sodiumY0 + 169, 0xFFFFC24A);
+
+        boolean confirmHover = sodiumConfirmRect.contains(mouseX, mouseY);
+        graphics.fill(sodiumConfirmRect.x0, sodiumConfirmRect.y0,
+            sodiumConfirmRect.x1, sodiumConfirmRect.y1,
+            confirmHover ? 0xCC4F9A52 : 0xAA356B38);
+        Component confirm = Component.translatable(sodiumDialogFixed
+            ? "playerpose.sodium.done" : "playerpose.sodium.confirm");
+        graphics.text(font, confirm,
+            sodiumConfirmRect.x0 + (sodiumConfirmRect.x1 - sodiumConfirmRect.x0
+                - font.width(confirm)) / 2,
+            sodiumConfirmRect.y0 + 5, 0xFFFFFFFF);
+
+        if (sodiumCancelRect != null) {
+            boolean cancelHover = sodiumCancelRect.contains(mouseX, mouseY);
+            graphics.fill(sodiumCancelRect.x0, sodiumCancelRect.y0,
+                sodiumCancelRect.x1, sodiumCancelRect.y1,
+                cancelHover ? 0xCC555566 : 0xAA333344);
+            Component cancel = Component.translatable("playerpose.sodium.cancel");
+            graphics.text(font, cancel,
+                sodiumCancelRect.x0 + (sodiumCancelRect.x1 - sodiumCancelRect.x0
+                    - font.width(cancel)) / 2,
+                sodiumCancelRect.y0 + 5, 0xFFE0E0E0);
+        }
+    }
+
+    private void openSodiumDialog() {
+        sodiumDialogOpen = true;
+        sodiumPromptShown = true;
+        sodiumDialogFixed = false;
+        sodiumDialogError = "";
+    }
+
+    private void closeSodiumDialog() {
+        sodiumDialogOpen = false;
+        sodiumDialogFixed = false;
+        sodiumDialogError = "";
+    }
+
+    private void confirmSodiumFix() {
+        if (PoseCompat.disableSodiumEntityMixin()) {
+            sodiumDialogFixed = true;
+            sodiumDialogError = "";
+            compatWarnings = PoseCompat.warnings(Minecraft.getInstance());
+            PoseLog.info("compat: sodium fix written; restart required");
+        } else {
+            sodiumDialogError = PoseCompat.sodiumConfig().toString();
+        }
+    }
+
+    // ---- preview skin ----------------------------------------------------
+
     /** Small "Skin" button in the top-right corner of the viewport. */
     private void drawSkinButton(GuiGraphicsExtractor graphics, Font font,
                                 int mouseX, int mouseY) {
@@ -871,6 +1060,174 @@ public class PoseEditorScreen extends Screen {
         graphics.fill(x + 1, y + h - 2, x + w - 1, y + h, 0xFFFFC24A);
     }
 
+    // ---- eyelid editor ---------------------------------------------------
+
+    private void drawEyesPanel(GuiGraphicsExtractor graphics, Font font,
+                               int mouseX, int mouseY) {
+        if (!eyesPanelOpen) return;
+        int w = 300;
+        int h = 174;
+        int x = Math.max(8, vpX1 - w - 8);
+        int y = vpY0 + 28;
+        if (y + h > height - STATUS_H - 4) {
+            y = Math.max(4, height - STATUS_H - 4 - h);
+        }
+        if (x + w > width - 4) x = Math.max(4, width - w - 4);
+        eyesPanelRect = new Rect(x, y, x + w, y + h);
+
+        graphics.fill(x, y, x + w, y + h, 0xFF181A22);
+        int edge = 0xFF8891A0;
+        graphics.fill(x, y, x + w, y + 1, edge);
+        graphics.fill(x, y + h - 1, x + w, y + h, edge);
+        graphics.fill(x, y, x + 1, y + h, edge);
+        graphics.fill(x + w - 1, y, x + w, y + h, edge);
+
+        graphics.text(font, Component.translatable("playerpose.eyes.title"),
+            x + 12, y + 8, 0xFFFFD48A);
+
+        // Format segments.
+        eyesFormatSpiceRect = new Rect(x + 12, y + 26, x + 112, y + 46);
+        eyesFormatJeRect = new Rect(x + 114, y + 26, x + 214, y + 46);
+        graphics.fill(x + 12, y + 25, x + 214, y + 26, 0xFFAAB4D4);
+        graphics.fill(x + 12, y + 46, x + 214, y + 47, 0xFFAAB4D4);
+        graphics.fill(x + 12, y + 25, x + 13, y + 47, 0xFFAAB4D4);
+        graphics.fill(x + 213, y + 25, x + 214, y + 47, 0xFFAAB4D4);
+        drawEyesSegment(graphics, font, eyesFormatSpiceRect,
+            Component.translatable("playerpose.eyes.formatSpice"),
+            EyelidManager.format() == EyelidManager.Format.SKINSPICE, mouseX, mouseY);
+        drawEyesSegment(graphics, font, eyesFormatJeRect,
+            Component.translatable("playerpose.eyes.formatJe"),
+            EyelidManager.format() == EyelidManager.Format.JUST_EXPRESSIONS, mouseX, mouseY);
+
+        // Support / status.
+        if (eyesLoading) {
+            graphics.text(font, Component.translatable("playerpose.eyes.loading"),
+                x + 12, y + 54, 0xFFAEB6C8);
+        } else if (!EyelidManager.hasBase()) {
+            graphics.text(font, Component.translatable("playerpose.eyes.noBase"),
+                x + 12, y + 54, 0xFFFF9A9A);
+        } else {
+            drawEyeSupport(graphics, font, x + 12, y + 54, true,
+                EyelidManager.leftSupported());
+            drawEyeSupport(graphics, font, x + 100, y + 54, false,
+                EyelidManager.rightSupported());
+            if (!eyesMessage.isBlank()) {
+                graphics.text(font, Component.literal(eyesMessage),
+                    x + 12, y + 66, 0xFFAEB6C8);
+            }
+        }
+
+        // Sliders. While the base skin is still loading the support of the previous skin
+        // is meaningless, so both stay neutral instead of flashing green.
+        eyesLeftSlider = new Rect(x + 58, y + 78, x + 232, y + 96);
+        eyesRightSlider = new Rect(x + 58, y + 102, x + 232, y + 120);
+        boolean leftLit = !eyesLoading && EyelidManager.leftSupported();
+        boolean rightLit = !eyesLoading && EyelidManager.rightSupported();
+        drawEyeSlider(graphics, font, x, y + 82, eyesLeftSlider,
+            Component.translatable("playerpose.eyes.left"),
+            EyelidManager.leftOpen(), leftLit);
+        drawEyeSlider(graphics, font, x, y + 106, eyesRightSlider,
+            Component.translatable("playerpose.eyes.right"),
+            EyelidManager.rightOpen(), rightLit);
+
+        if (eyesPrompt) {
+            drawWrapped(graphics, font, Component.translatable("playerpose.eyes.prompt").getString(),
+                x + 12, y + 124, w - 24, 2, 0xFFFFD48A);
+            eyesYesRect = new Rect(x + 12, y + 146, x + 148, y + 166);
+            eyesNoRect = new Rect(x + 216, y + 146, x + 288, y + 166);
+            eyesDemoRect = null;
+            eyesCloseRect = null;
+            drawSkinAction(graphics, font, eyesYesRect,
+                Component.translatable("playerpose.eyes.useDemo"), true, mouseX, mouseY);
+            drawSkinAction(graphics, font, eyesNoRect,
+                Component.translatable("playerpose.eyes.cancel"), false, mouseX, mouseY);
+        } else {
+            eyesYesRect = null;
+            eyesNoRect = null;
+            String hint = Component.translatable("playerpose.eyes.hint").getString();
+            graphics.text(font, Component.literal(hint), x + 12, y + 124,
+                0xFF8891A0);
+            if (compatEyeWarning()) {
+                graphics.text(font, Component.translatable("playerpose.eyes.conflict"),
+                    x + 12, y + 134, 0xFFAA8860);
+            }
+            eyesDemoRect = new Rect(x + 12, y + 146, x + 148, y + 166);
+            eyesCloseRect = new Rect(x + 216, y + 146, x + 288, y + 166);
+            boolean demoLoaded = PreviewSkinManager.isDemo();
+            drawSkinAction(graphics, font, eyesDemoRect,
+                Component.translatable(demoLoaded
+                    ? "playerpose.skin.original" : "playerpose.eyes.demo"),
+                demoLoaded, mouseX, mouseY);
+            drawSkinAction(graphics, font, eyesCloseRect,
+                Component.translatable("playerpose.eyes.close"), false, mouseX, mouseY);
+        }
+    }
+
+    private void drawEyesSegment(GuiGraphicsExtractor graphics, Font font, Rect r,
+                                 Component label, boolean active, int mouseX, int mouseY) {
+        boolean hover = r.contains(mouseX, mouseY);
+        graphics.fill(r.x0 + 1, r.y0 + 1, r.x1 - 1, r.y1 - 1,
+            active ? 0x33FFD48A : hover ? 0xAA555566 : 0xAA333344);
+        if (active) {
+            graphics.fill(r.x0 + 1, r.y1 - 2, r.x1 - 1, r.y1, 0xFFFFC24A);
+        }
+        graphics.text(font, label, r.x0 + ((r.x1 - r.x0) - font.width(label)) / 2,
+            r.y0 + 5, active || hover ? 0xFFFFFFFF : 0xFFE0E0E0);
+    }
+
+    private void drawEyeSupport(GuiGraphicsExtractor graphics, Font font,
+                                int x, int y, boolean left, boolean supported) {
+        Component label = Component.translatable(left
+            ? "playerpose.eyes.left" : "playerpose.eyes.right");
+        graphics.text(font, label, x, y, 0xFFB8C0D0);
+        Component state = Component.translatable(supported
+            ? "playerpose.eyes.supported" : "playerpose.eyes.unsupported");
+        graphics.text(font, state, x + font.width(label) + 6, y,
+            supported ? 0xFF7FD46A : 0xFF9A6A6A);
+    }
+
+    private void drawEyeSlider(GuiGraphicsExtractor graphics, Font font, int panelX,
+                               int y, Rect track, Component label,
+                               float open, boolean supported) {
+        graphics.text(font, label, panelX + 12, y + 3, 0xFFB8C0D0);
+        int tx0 = panelX + 58;
+        int tx1 = panelX + 232;
+        int ty0 = y + 5;
+        int ty1 = y + 11;
+        graphics.fill(tx0, ty0, tx1, ty1, 0xFF0B0C10);
+        graphics.fill(tx0, ty0, tx1, ty0 + 1, 0xFF667080);
+        graphics.fill(tx0, ty1 - 1, tx1, ty1, 0xFF667080);
+        graphics.fill(tx0, ty0, tx0 + 1, ty1, 0xFF667080);
+        graphics.fill(tx1 - 1, ty0, tx1, ty1, 0xFF667080);
+        int knobW = 6;
+        int kx = tx0 + Math.round(open * (tx1 - tx0 - knobW));
+        int fill = supported ? 0xFF7FD46A : 0xFF555566;
+        if (supported) {
+            graphics.fill(tx0 + 1, ty0 + 2, kx + knobW, ty1 - 2, 0x557FD46A);
+        }
+        graphics.fill(kx, y + 2, kx + knobW, y + 14, fill);
+        graphics.fill(kx, y + 2, kx + knobW, y + 3, 0xFFFFFFFF);
+        Component value = Component.literal(supported
+            ? Math.round(open * 100.0F) + "%" : "-");
+        graphics.text(font, value, panelX + 240, y + 3,
+            supported ? 0xFFE0E0E0 : 0xFF7A8090);
+    }
+
+    private boolean compatEyeWarning() {
+        return net.fabricmc.loader.api.FabricLoader.getInstance()
+            .isModLoaded("entity_texture_features")
+            || net.fabricmc.loader.api.FabricLoader.getInstance()
+            .isModLoaded("entity_model_features");
+    }
+
+    private void drawWrapped(GuiGraphicsExtractor graphics, Font font, String text,
+                             int x, int y, int maxWidth, int maxLines, int color) {
+        List<String> lines = wrapText(font, text, maxWidth, maxLines);
+        for (int i = 0; i < lines.size(); i++) {
+            graphics.text(font, Component.literal(lines.get(i)), x, y + i * 10, color);
+        }
+    }
+
     private void drawSkinFace(GuiGraphicsExtractor graphics, NativeImage image,
                               int x, int y, int size) {
         int cell = Math.max(1, size / 8);
@@ -944,6 +1301,7 @@ public class PoseEditorScreen extends Screen {
     }
 
     private void openSkinPanel() {
+        if (eyesPanelOpen) closeEyesPanel();
         skinPanelOpen = true;
         applySkinMode();
         if (skinStatus == null || skinStatus.isBlank()) {
@@ -998,6 +1356,131 @@ public class PoseEditorScreen extends Screen {
         if (skinInputBox != null) {
             skinInputBox.setVisible(false);
             skinInputBox.setFocused(false);
+        }
+    }
+
+    // ---- eyelid editor ---------------------------------------------------
+
+    private void openEyesPanel() {
+        if (skinPanelOpen) closeSkinPanel();
+        eyesPanelOpen = true;
+        eyesSelected = true;
+        updateActionButtons();
+        eyesPrompt = false;
+        eyesMessage = "";
+        draggingLeftEye = false;
+        draggingRightEye = false;
+        EyelidManager.setActive(true);
+        if (PreviewSkinManager.pixels() != null) {
+            EyelidManager.refresh();
+            eyesLoading = false;
+        } else {
+            eyesLoading = true;
+            PreviewSkinManager.ensureBaseSkin(() -> {
+                eyesLoading = false;
+                EyelidManager.refresh();
+                if (!EyelidManager.hasBase()) {
+                    eyesMessage = Component.translatable("playerpose.eyes.noBase").getString();
+                }
+            });
+        }
+    }
+
+    private void closeEyesPanel() {
+        eyesPanelOpen = false;
+        eyesPrompt = false;
+        draggingLeftEye = false;
+        draggingRightEye = false;
+        eyesYesRect = null;
+        eyesNoRect = null;
+        eyesDemoRect = null;
+        eyesCloseRect = null;
+    }
+
+    private void loadBlinkDemo() {
+        PlayerModelType type = PreviewSkinManager.model();
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player != null && mc.player.getSkin() != null
+            && PreviewSkinManager.pixels() == null) {
+            type = mc.player.getSkin().model();
+        }
+        PreviewSkinManager.loadBundledDemo(type, this::onEyesMessage);
+        EyelidManager.refresh();
+        eyesPrompt = false;
+        eyesMessage = Component.translatable("playerpose.eyes.demoLoaded").getString();
+    }
+
+    private void onEyesMessage(String message) {
+        eyesMessage = message == null ? "" : message;
+    }
+
+    private void setEyeFromMouse(boolean left, double mouseX) {
+        Rect track = left ? eyesLeftSlider : eyesRightSlider;
+        if (track == null) return;
+        float value = (float) ((mouseX - track.x0) / (double) (track.x1 - track.x0));
+        EyelidManager.setOpenness(left, value);
+    }
+
+    private boolean isButtonClick(Button button, double mouseX, double mouseY) {
+        if (button == null || !button.visible || !button.active) return false;
+        return mouseX >= button.getX() && mouseX < button.getX() + button.getWidth()
+            && mouseY >= button.getY() && mouseY < button.getY() + button.getHeight();
+    }
+
+    private void handleEyesClick(MouseButtonEvent event) {
+        double mx = event.x();
+        double my = event.y();
+        if (eyesPrompt) {
+            if (eyesYesRect != null && eyesYesRect.contains(mx, my)) {
+                loadBlinkDemo();
+            } else if (eyesNoRect != null && eyesNoRect.contains(mx, my)) {
+                eyesPrompt = false;
+            }
+            return;
+        }
+        if (eyesFormatSpiceRect != null && eyesFormatSpiceRect.contains(mx, my)) {
+            EyelidManager.setFormat(EyelidManager.Format.SKINSPICE);
+            eyesMessage = "";
+            return;
+        }
+        if (eyesFormatJeRect != null && eyesFormatJeRect.contains(mx, my)) {
+            EyelidManager.setFormat(EyelidManager.Format.JUST_EXPRESSIONS);
+            eyesMessage = "";
+            return;
+        }
+        if (eyesDemoRect != null && eyesDemoRect.contains(mx, my)) {
+            if (PreviewSkinManager.isDemo()) {
+                restoreOriginalSkin();
+                eyesMessage = Component.translatable("playerpose.skin.originalSet").getString();
+            } else {
+                loadBlinkDemo();
+            }
+            return;
+        }
+        if (eyesCloseRect != null && eyesCloseRect.contains(mx, my)) {
+            closeEyesPanel();
+            return;
+        }
+        if (eyesLeftSlider != null && eyesLeftSlider.contains(mx, my)) {
+            if (!eyesLoading && EyelidManager.hasBase()) {
+                if (!EyelidManager.leftSupported()) {
+                    eyesPrompt = true;
+                } else {
+                    draggingLeftEye = true;
+                    setEyeFromMouse(true, mx);
+                }
+            }
+            return;
+        }
+        if (eyesRightSlider != null && eyesRightSlider.contains(mx, my)) {
+            if (!eyesLoading && EyelidManager.hasBase()) {
+                if (!EyelidManager.rightSupported()) {
+                    eyesPrompt = true;
+                } else {
+                    draggingRightEye = true;
+                    setEyeFromMouse(false, mx);
+                }
+            }
         }
     }
 
@@ -1184,6 +1667,7 @@ public class PoseEditorScreen extends Screen {
             originalName = "";
             editingPose = true;
             PlayerPoseClient.setEditorPreviewPose(workingPose);
+            deselectEyes();
             selected = "body";
             selectionVisible = true;
             gizmoVisible = true;
@@ -1237,8 +1721,27 @@ public class PoseEditorScreen extends Screen {
         if (workingPose != null) {
             workingPose.setBones(new ArrayList<>());
         }
+        resetEyelids();
         syncFromPose();
         setStatus(Component.translatable("playerpose.status.resetAll"));
+    }
+
+    /** Both eyelids back to fully open; they are editor state, not part of the pose. */
+    private void resetEyelids() {
+        EyelidManager.setOpenness(true, 1.0F);
+        EyelidManager.setOpenness(false, 1.0F);
+        draggingLeftEye = false;
+        draggingRightEye = false;
+    }
+
+    /**
+     * Leave eye mode. The eyelid values stay where they are: the eyes keep rendering as
+     * set until Reset, another skin, or closing the editor, so switching focus to a bone
+     * does not silently undo the eyelid edit.
+     */
+    private void deselectEyes() {
+        eyesSelected = false;
+        updateActionButtons();
     }
 
     private void deletePose() {
@@ -1403,11 +1906,32 @@ public class PoseEditorScreen extends Screen {
     }
 
     private void resetRow() {
+        // With the eyelid panel open the eyes are the selection, so Reset targets them and
+        // leaves whatever body bone was last picked untouched.
+        if (eyesSelected) {
+            resetEyelids();
+            setStatus(Component.translatable("playerpose.status.reset",
+                Component.translatable("playerpose.eyes.button")));
+            return;
+        }
         beginEdit();
         rotX = 0; rotY = 0; rotZ = 0;
         tX = 0; tY = 0; tZ = 0;
         commit();
+        if ("cape".equals(selected)) {
+            elytraSpreadX = 0.0F;
+            elytraSpreadY = 0.0F;
+            elytraSpreadZ = 0.0F;
+            commitElytraSpread();
+        }
         setStatus(Component.translatable("playerpose.status.reset", selected));
+    }
+
+    private static double wrapDegrees(double value) {
+        double v = value % 360.0;
+        if (v > 180.0) v -= 360.0;
+        if (v < -180.0) v += 360.0;
+        return v;
     }
 
     private void setStatus(Component msg) {
@@ -1440,6 +1964,7 @@ public class PoseEditorScreen extends Screen {
         addRenderableWidget(skinFileBtn);
 
         PreviewSkinManager.setActive(true);
+        EyelidManager.setActive(true);
 
         // Name bar is drawn by us and is click-to-rename; there is no free-typing
         // field here anymore.
@@ -1507,6 +2032,11 @@ public class PoseEditorScreen extends Screen {
                 PoseLog.warn("compat: %s", warning.getString());
             }
         }
+        // Offer the one-click Sodium fix once per game session; the COMPAT badge can
+        // reopen it from then on.
+        if (!sodiumPromptShown && PoseCompat.sodiumConflict()) {
+            openSodiumDialog();
+        }
     }
 
     /** Save/Done stay; the other four actions follow the active list tab. */
@@ -1515,11 +2045,11 @@ public class PoseEditorScreen extends Screen {
         if (saveBtn != null) saveBtn.active = editingPose;
         if (rotateBtn != null) {
             rotateBtn.visible = bones;
-            rotateBtn.active = editingPose;
+            rotateBtn.active = editingPose && !eyesSelected;
         }
         if (moveBtn != null) {
             moveBtn.visible = bones;
-            moveBtn.active = editingPose;
+            moveBtn.active = editingPose && !eyesSelected;
         }
         if (resetBtn != null) {
             resetBtn.visible = bones;
@@ -1619,13 +2149,18 @@ public class PoseEditorScreen extends Screen {
         drawLoadMenu(graphics, font, mouseX, mouseY);
         drawNameDialog(graphics, font, mouseX, mouseY);
         drawSkinPanel(graphics, font, mouseX, mouseY, partialTick);
+        drawEyesPanel(graphics, font, mouseX, mouseY);
+        drawSodiumDialog(graphics, font, mouseX, mouseY);
 
-        if (!compatWarnings.isEmpty() && compatX1 > compatX0
+        if (!sodiumDialogOpen && !compatWarnings.isEmpty() && compatX1 > compatX0
             && isOver(mouseX, mouseY, compatX0, compatY0,
                 compatX1 - compatX0, compatY1 - compatY0)) {
             int index = compatWarningIndex();
             List<Component> tip = new ArrayList<>();
             tip.add(compatWarnings.get(index));
+            if (PoseCompat.sodiumConflict()) {
+                tip.add(Component.translatable("playerpose.sodium.clickFix"));
+            }
             if (compatWarnings.size() > 1) {
                 tip.add(Component.literal((index + 1) + "/" + compatWarnings.size()));
             }
@@ -1650,17 +2185,19 @@ public class PoseEditorScreen extends Screen {
 
         graphics.enableScissor(vpX0 + 1, vpY0 + 1, vpX1 - 1, vpY1 - 1);
         renderPlayerModel(graphics, partialTick);
-        if (gizmoVisible && editingPose) {
+        if (gizmoVisible && editingPose && !eyesSelected) {
             int hoverAxis = buildGizmo(graphics, PoseGizmo.NONE).hitTest(mouseX, mouseY);
             buildGizmo(graphics, hoverAxis).draw();
         }
         graphics.disableScissor();
 
-        if (!skinPanelOpen) {
+        if (!skinPanelOpen && !eyesPanelOpen) {
             drawSkinButton(graphics, font, mouseX, mouseY);
         } else {
             skinButtonRect = null;
         }
+
+        drawElytraSpreadSlider(graphics, font, mouseX, mouseY);
 
         // The model owns the viewport; the read-out lives in the top strip instead of
         // painting over the head. Long hints scroll instead of being cut off.
@@ -1670,7 +2207,107 @@ public class PoseEditorScreen extends Screen {
             vpX0 + 4, vpY1 - 12, vpX1 - vpX0 - 8, 0xFF888899);
     }
 
-    /** Selected bone, mode, compat/unsaved badges and axis read-out, above the viewport. */
+    /**
+     * Elytra control: three vertical sliders for the X/Y/Z opening angles, in a small
+     * panel at the top-left of the viewport. The title row sits above the sliders and
+     * folds the panel away; the panel starts open.
+     */
+    private void drawElytraSpreadSlider(GuiGraphicsExtractor graphics, Font font,
+                                        int mouseX, int mouseY) {
+        boolean show = !eyesSelected && !eyesPanelOpen && !skinPanelOpen
+            && listTab == 0 && editingPose && "cape".equals(selected) && wearingElytra();
+        if (!show) {
+            for (int i = 0; i < elytraSliderRects.length; i++) elytraSliderRects[i] = null;
+            elytraToggleRect = null;
+            return;
+        }
+        Component title = Component.translatable("playerpose.elytra.control");
+        Component caption = Component.literal(elytraPanelOpen ? "\u25BE " : "\u25B8 ")
+            .append(title);
+        int captionW = font.width(caption);
+
+        String[] names = {"X", "Y", "Z"};
+        int[] colors = {0xFFFF5555, 0xFF6FD44F, 0xFF4F86FF};
+        float[] values = {elytraSpreadX, elytraSpreadY, elytraSpreadZ};
+
+        int groupW = 44;
+        int boxW = Math.max(groupW, captionW) + 14;
+        int boxX0 = vpX0 + 4;
+        int boxX1 = boxX0 + boxW;
+        int boxY0 = vpY0 + 4;
+        int captionY = boxY0 + 5;
+        int trackH = 56;
+        int trackY0 = captionY + 13;
+        int trackY1 = trackY0 + trackH;
+        int boxY1 = elytraPanelOpen ? trackY1 + 16 : boxY0 + 20;
+        graphics.fill(boxX0, boxY0, boxX1, boxY1, 0x66000000);
+
+        elytraToggleRect = new Rect(boxX0 + 2, captionY - 3, boxX1 - 2, captionY + 10);
+        boolean toggleHover = elytraToggleRect.contains(mouseX, mouseY);
+        graphics.text(font, caption, boxX0 + 6, captionY,
+            toggleHover ? 0xFFFFC24A : 0xFFB8C0D0);
+
+        if (!elytraPanelOpen) {
+            for (int i = 0; i < elytraSliderRects.length; i++) elytraSliderRects[i] = null;
+            return;
+        }
+
+        int groupX0 = boxX0 + (boxW - groupW) / 2;
+        for (int axis = 0; axis < 3; axis++) {
+            int trackX0 = groupX0 + axis * 18;
+            int trackX1 = trackX0 + 8;
+            elytraSliderRects[axis] = new Rect(trackX0 - 3, trackY0 - 4,
+                trackX1 + 3, trackY1 + 4);
+            boolean hover = elytraSliderRects[axis].contains(mouseX, mouseY);
+            boolean active = hover || draggingElytraAxis == axis;
+
+            graphics.fill(trackX0, trackY0, trackX1, trackY1, 0xFF0B0C10);
+            int border = active ? 0xFFFFC24A : 0xFF667080;
+            graphics.fill(trackX0, trackY0, trackX1, trackY0 + 1, border);
+            graphics.fill(trackX0, trackY1 - 1, trackX1, trackY1, border);
+            graphics.fill(trackX0, trackY0, trackX0 + 1, trackY1, border);
+            graphics.fill(trackX1 - 1, trackY0, trackX1, trackY1, border);
+
+            float ratio = sliderRatio(axis, values[axis]);
+            int knobH = 6;
+            int ky = trackY1 - knobH - Math.round(ratio * (trackH - knobH));
+            graphics.fill(trackX0 + 1, ky + knobH, trackX1 - 1, trackY1 - 1, 0x55FFC24A);
+            graphics.fill(trackX0 - 2, ky, trackX1 + 2, ky + knobH, colors[axis] | 0xFF000000);
+            if (axis == 0) {
+                graphics.fill(trackX0 - 2, ky, trackX1 + 2, ky + 1, 0xFFFFFFFF);
+            }
+
+            Component label = Component.literal(names[axis]);
+            graphics.text(font, label, trackX0 + (8 - font.width(label)) / 2,
+                trackY1 + 4, active ? 0xFFFFFFFF : colors[axis]);
+        }
+    }
+
+    /** Slider position for one axis; X is centred so it can go negative. */
+    private static float sliderRatio(int axis, float value) {
+        float ratio = axis == 0
+            ? (value + ELYTRA_SPREAD_MAX) / (ELYTRA_SPREAD_MAX * 2.0F)
+            : value / ELYTRA_SPREAD_MAX;
+        return Math.max(0.0F, Math.min(1.0F, ratio));
+    }
+
+    private void setElytraSpreadFromMouse(int axis, double mouseY) {
+        if (axis < 0 || axis >= elytraSliderRects.length) return;
+        Rect track = elytraSliderRects[axis];
+        if (track == null) return;
+        // Up is open: the top of the track is the maximum.
+        float ratio = (float) ((track.y1 - mouseY) / (double) (track.y1 - track.y0));
+        ratio = Math.max(0.0F, Math.min(1.0F, ratio));
+        float value = axis == 0
+            ? (ratio * 2.0F - 1.0F) * ELYTRA_SPREAD_MAX
+            : ratio * ELYTRA_SPREAD_MAX;
+        switch (axis) {
+            case 0 -> elytraSpreadX = value;
+            case 1 -> elytraSpreadY = value;
+            default -> elytraSpreadZ = value;
+        }
+        commitElytraSpread();
+    }
     private void drawTopInfo(GuiGraphicsExtractor graphics, Font font) {
         panel(graphics, vpX0, INFO_Y, vpX1, INFO_Y + INFO_H);
         int maxW = vpX1 - vpX0 - 8;
@@ -1717,13 +2354,15 @@ public class PoseEditorScreen extends Screen {
         int[] axisColors = {0xFFFF5555, 0xFF6FD44F, 0xFF4F86FF};
         int ax = vpX0 + 4;
         for (int i = 0; i < 3; i++) {
+            // Eye mode: the bone values are not the thing being edited, so they go grey.
             Component label = moveMode
                 ? vecLabel(axisNames[i], translationFor(i))
                 : angleLabel(axisNames[i], i);
             int labelW = font.width(label);
             if (ax + labelW > vpX1 - 4) break;
-            graphics.text(font, label, ax, INFO_Y + 13,
-                i == activeAxis ? 0xFFFFFFFF : axisColors[i]);
+            int color = eyesSelected ? 0xFF6A7080
+                : i == activeAxis ? 0xFFFFFFFF : axisColors[i];
+            graphics.text(font, label, ax, INFO_Y + 13, color);
             ax += labelW + 8;
         }
     }
@@ -1776,7 +2415,8 @@ public class PoseEditorScreen extends Screen {
         rot.mul(pitchQ);
 
         Vector3f offset = new Vector3f(0.0F, state.boundingBoxHeight / 2.0F, 0.0F);
-        graphics.entity(state, (float) modelPxPerBlock(), offset, rot, pitchQ, vpX0, vpY0, vpX1, vpY1);
+        graphics.entity(state, (float) modelPxPerBlock(), offset, rot, pitchQ,
+            vpX0, vpY0, vpX1, vpY1);
     }
 
     /**
@@ -1788,6 +2428,7 @@ public class PoseEditorScreen extends Screen {
         int bottom = height - STATUS_H - 2;
         panel(graphics, LEFT_X - 3, TAB_Y - 2, LEFT_X + LEFT_W + 3, bottom);
         drawTabs(graphics, font, mouseX, mouseY);
+        eyesButtonRect = null;
 
         int rows = listWindow();
         boolean enabled = PlayerPoseClient.arePosesEnabled();
@@ -1923,7 +2564,33 @@ public class PoseEditorScreen extends Screen {
 
     private void drawBoneFigure(GuiGraphicsExtractor graphics, Font font, int mouseX, int mouseY) {
         BoneFigure f = boneFigure();
-        String hover = boneAt(mouseX, mouseY);
+        // While the eyelid panel is open the eyes are the selection; body parts are not
+        // pickable then, so neither hover nor the selection frame should react.
+        String hover = eyesSelected ? null : boneAt(mouseX, mouseY);
+
+        // Eyelid editor entry, in the free space left of the mannequin's head.
+        int bx = LEFT_X + 2;
+        int by = LIST_Y + 2;
+        int bw = 34;
+        int bh = 16;
+        boolean eyesHover = isOver(mouseX, mouseY, bx, by, bw, bh);
+        boolean eyesLit = EyelidManager.leftSupported() || EyelidManager.rightSupported();
+        // Only the open panel marks "eyes" as the current selection; a supported skin just
+        // gets a small dot, so the lit border cannot be mistaken for a selection.
+        int eyesEdge = eyesSelected ? 0xFFFFC24A
+            : eyesHover ? 0xFFFFC24A : 0xFF667080;
+        graphics.fill(bx, by, bx + bw, by + bh, eyesHover ? 0xCC555566 : 0xAA333344);
+        graphics.fill(bx, by, bx + bw, by + 1, eyesEdge);
+        graphics.fill(bx, by + bh - 1, bx + bw, by + bh, eyesEdge);
+        graphics.fill(bx, by, bx + 1, by + bh, eyesEdge);
+        graphics.fill(bx + bw - 1, by, bx + bw, by + bh, eyesEdge);
+        if (eyesLit) {
+            graphics.fill(bx + bw - 6, by + bh - 6, bx + bw - 3, by + bh - 3, 0xFF7FD46A);
+        }
+        Component eyesLabel = Component.translatable("playerpose.eyes.button");
+        graphics.text(font, eyesLabel, bx + (bw - font.width(eyesLabel)) / 2, by + 4,
+            eyesHover || eyesPanelOpen ? 0xFFFFFFFF : 0xFFE0E0E0);
+        eyesButtonRect = new Rect(bx, by, bx + bw, by + bh);
 
         // Same left/right as the rendered model: facing the viewer, the player's left
         // hand is on the right of the panel.
@@ -1944,25 +2611,79 @@ public class PoseEditorScreen extends Screen {
         Component right = Component.literal("R");
         graphics.text(font, right, f.x(-8) - 3 - font.width(right), markerY, 0xFF7F889A);
 
-        boolean capeSelected = selectionVisible && "cape".equals(selected);
+        boolean capeSelected = selectionShown() && "cape".equals(selected);
         boolean capeHover = "cape".equals(hover);
-        graphics.fill(f.chipX0(), f.chipY0(), f.chipX1(), f.chipY1(),
-            capeSelected ? 0x6644AA44 : capeHover ? 0x33FFFFFF : 0x55222233);
-        int capeBorder = capeSelected ? 0xFF7FD46A
-            : capeHover ? 0xFFFFC24A : 0xFF3E4862;
-        graphics.fill(f.chipX0(), f.chipY0(), f.chipX1(), f.chipY0() + 1, capeBorder);
-        graphics.fill(f.chipX0(), f.chipY1() - 1, f.chipX1(), f.chipY1(), capeBorder);
-        graphics.fill(f.chipX0(), f.chipY0(), f.chipX0() + 1, f.chipY1(), capeBorder);
-        graphics.fill(f.chipX1() - 1, f.chipY0(), f.chipX1(), f.chipY1(), capeBorder);
-        Component cape = itemLabel("cape");
-        graphics.text(font, cape, f.cx() - font.width(cape) / 2, f.chipY0() + 3,
-            capeSelected || capeHover ? 0xFFFFFFFF : 0xFFCCCCCC);
+        drawChip(graphics, font, f.chipX0(), f.chipX1(), f.chipY0(), f.chipY1(),
+            "cape", capeSelected, capeHover);
+
+        // No cape of your own? Offer the bundled demo cape right next to the chip. The same
+        // button puts the real (empty) cape back when the demo is loaded.
+        drawDemoCapeChip(graphics, font, f, mouseX, mouseY);
 
         // Hover wins so the name under the cursor is readable before clicking.
         String shown = hover != null ? hover : selected;
-        Component caption = itemLabel(shown);
+        Component caption = eyesSelected
+            ? Component.translatable("playerpose.eyes.button")
+            : itemLabel(shown);
         graphics.text(font, caption, f.cx() - font.width(caption) / 2, f.captionY(),
-            hover != null ? 0xFFFFC24A : 0xFFCCCCCC);
+            eyesSelected ? 0xFFFFC24A : hover != null ? 0xFFFFC24A : 0xFFCCCCCC);
+    }
+
+    private void drawDemoCapeChip(GuiGraphicsExtractor graphics, Font font, BoneFigure f,
+                                  int mouseX, int mouseY) {
+        boolean hasCape = previewHasCape();
+        boolean demo = PreviewSkinManager.isDemoCape();
+        if (hasCape && !demo) {
+            capeDemoRect = null;
+            return;
+        }
+        int w = 46;
+        int x1 = f.chipX0() - 4;
+        int x0 = Math.max(LEFT_X + 2, x1 - w);
+        if (x0 >= x1 - 8) {
+            capeDemoRect = null;
+            return;
+        }
+        capeDemoRect = new Rect(x0, f.chipY0(), x1, f.chipY1());
+        boolean hover = capeDemoRect.contains(mouseX, mouseY);
+
+        // Same chip look as the bone chips, but the full label is longer than the space
+        // available, so it scrolls.
+        graphics.fill(x0, f.chipY0(), x1, f.chipY1(),
+            demo ? 0x6644AA44 : hover ? 0x33FFFFFF : 0x55222233);
+        int border = demo ? 0xFF7FD46A : hover ? 0xFFFFC24A : 0xFF3E4862;
+        graphics.fill(x0, f.chipY0(), x1, f.chipY0() + 1, border);
+        graphics.fill(x0, f.chipY1() - 1, x1, f.chipY1(), border);
+        graphics.fill(x0, f.chipY0(), x0 + 1, f.chipY1(), border);
+        graphics.fill(x1 - 1, f.chipY0(), x1, f.chipY1(), border);
+
+        String label = Component.translatable(demo
+            ? "playerpose.cape.unload" : "playerpose.cape.demo").getString();
+        drawMarquee(graphics, font, label, x0 + 3, f.chipY0() + 3, (x1 - x0) - 6,
+            demo || hover ? 0xFFFFFFFF : 0xFFCCCCCC);
+    }
+
+    private boolean previewHasCape() {
+        // The editor may be showing another player's skin: their cape decides whether the
+        // demo cape is offered, not the local player's real one.
+        return PreviewSkinManager.effectiveCape() != null;
+    }
+
+    private void drawChip(GuiGraphicsExtractor graphics, Font font, int x0, int x1,
+                          int y0, int y1, String bone, boolean selected, boolean hover) {
+        drawChip(graphics, font, x0, x1, y0, y1, itemLabel(bone), selected, hover);
+    }
+
+    private void drawChip(GuiGraphicsExtractor graphics, Font font, int x0, int x1,
+                          int y0, int y1, Component label, boolean selected, boolean hover) {
+        graphics.fill(x0, y0, x1, y1, selected ? 0x6644AA44 : hover ? 0x33FFFFFF : 0x55222233);
+        int border = selected ? 0xFF7FD46A : hover ? 0xFFFFC24A : 0xFF3E4862;
+        graphics.fill(x0, y0, x1, y0 + 1, border);
+        graphics.fill(x0, y1 - 1, x1, y1, border);
+        graphics.fill(x0, y0, x0 + 1, y1, border);
+        graphics.fill(x1 - 1, y0, x1, y1, border);
+        graphics.text(font, label, x0 + (x1 - x0 - font.width(label)) / 2, y0 + 3,
+            selected || hover ? 0xFFFFFFFF : 0xFFCCCCCC);
     }
 
     private void drawBonePart(GuiGraphicsExtractor graphics, BoneFigure f, String bone,
@@ -1970,7 +2691,7 @@ public class PoseEditorScreen extends Screen {
                               int argb, String hover) {
         int px0 = f.x(x0), py0 = f.y(y0), px1 = f.x(x1), py1 = f.y(y1);
         graphics.fill(px0, py0, px1, py1, argb);
-        boolean isSelected = selectionVisible && bone.equals(selected);
+        boolean isSelected = selectionShown() && bone.equals(selected);
         if (!isSelected && bone.equals(hover)) {
             graphics.fill(px0, py0, px1, py1, 0x40FFFFFF);
         }
@@ -1984,7 +2705,17 @@ public class PoseEditorScreen extends Screen {
     }
 
     /** Bone under the cursor on the Bones tab, or null. */
+    private boolean selectionShown() {
+        return selectionVisible && !eyesSelected;
+    }
+
     private String boneAt(double mouseX, double mouseY) {
+        if (listTab != 0 || eyesSelected) return null;
+        return boneAtRaw(mouseX, mouseY);
+    }
+
+    /** Part under the cursor, ignoring the eye selection. */
+    private String boneAtRaw(double mouseX, double mouseY) {
         if (listTab != 0) return null;
         BoneFigure f = boneFigure();
 
@@ -2040,7 +2771,20 @@ public class PoseEditorScreen extends Screen {
 
     /** Display name for a left-bar row. */
     private Component itemLabel(String row) {
+        // Cape and elytra are mutually exclusive, so they share one bone; the label just
+        // follows whatever the player is wearing.
+        if ("cape".equals(row)) {
+            return Component.translatable(wearingElytra()
+                ? "playerpose.bone.elytra" : "playerpose.bone.cape");
+        }
         return Component.translatable("playerpose.bone." + row);
+    }
+
+    private boolean wearingElytra() {
+        Minecraft mc = Minecraft.getInstance();
+        return mc.player != null
+            && mc.player.getItemBySlot(net.minecraft.world.entity.EquipmentSlot.CHEST)
+                .is(net.minecraft.world.item.Items.ELYTRA);
     }
 
     private void panel(GuiGraphicsExtractor graphics, int x0, int y0, int x1, int y1) {
@@ -2143,6 +2887,57 @@ public class PoseEditorScreen extends Screen {
 
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        if (sodiumDialogOpen) {
+            sodiumDialogLayout();
+            double mx = event.x();
+            double my = event.y();
+            if (sodiumLinkRect != null && sodiumLinkRect.contains(mx, my)) {
+                if (!SODIUM_GUIDE_URL.isEmpty()) {
+                    try {
+                        Util.getPlatform().openUri(SODIUM_GUIDE_URL);
+                    } catch (Throwable error) {
+                        PoseLog.warn("sodium guide: cannot open browser (%s)", error);
+                    }
+                }
+                return true;
+            }
+            if (sodiumConfirmRect != null && sodiumConfirmRect.contains(mx, my)) {
+                if (sodiumDialogFixed) closeSodiumDialog(); else confirmSodiumFix();
+                return true;
+            }
+            if (sodiumCancelRect != null && sodiumCancelRect.contains(mx, my)) {
+                closeSodiumDialog();
+                return true;
+            }
+            return true; // modal: clicks never reach the editor
+        }
+        // The COMPAT badge doubles as the entry point for the Sodium helper.
+        if (!compatWarnings.isEmpty() && compatX1 > compatX0
+            && isOver((int) event.x(), (int) event.y(), compatX0, compatY0,
+                compatX1 - compatX0, compatY1 - compatY0)
+            && PoseCompat.sodiumConflict()) {
+            openSodiumDialog();
+            return true;
+        }
+        if (eyesPanelOpen) {
+            // Reset / Reset All stay usable while the panel is open, and act on the eyes.
+            if (isButtonClick(resetBtn, event.x(), event.y())) {
+                resetRow();
+                return true;
+            }
+            if (isButtonClick(resetAllBtn, event.x(), event.y())) {
+                resetAll();
+                return true;
+            }
+            // Clicking the (now amber) Eyes button again just hides the sliders; the eyes
+            // stay the edit target until a body part is picked.
+            if (eyesButtonRect != null && eyesButtonRect.contains(event.x(), event.y())) {
+                closeEyesPanel();
+                return true;
+            }
+            handleEyesClick(event);
+            return true;
+        }
         if (skinPanelOpen) {
             layoutSkinPanel();
             int mx = (int) event.x();
@@ -2236,6 +3031,11 @@ public class PoseEditorScreen extends Screen {
             return true;
         }
 
+        if (eyesButtonRect != null && eyesButtonRect.contains(event.x(), event.y())) {
+            openEyesPanel();
+            return true;
+        }
+
         // Never let a previous drag state swallow this click.
         int previousAxis = activeAxis;
         if (!orbiting && previousAxis != PoseGizmo.NONE && !inViewport(event.x(), event.y())) {
@@ -2255,6 +3055,14 @@ public class PoseEditorScreen extends Screen {
                     setStatus(Component.translatable("playerpose.status.pressNew"));
                     return true;
                 }
+            }
+            // Eye mode survives closing the sliders: picking a body part is what leaves it.
+            if (eyesSelected && boneAtRaw(event.x(), event.y()) != null) {
+                deselectEyes();
+            }
+            if (capeDemoRect != null && capeDemoRect.contains(event.x(), event.y())) {
+                PreviewSkinManager.toggleDemoCape(this::onSkinStatus);
+                return true;
             }
             String bone = boneAt(event.x(), event.y());
             if (bone != null) {
@@ -2293,6 +3101,20 @@ public class PoseEditorScreen extends Screen {
         }
 
         if (inViewport(event.x(), event.y())) {
+            if (event.button() == 0) {
+                if (elytraToggleRect != null && elytraToggleRect.contains(event.x(), event.y())) {
+                    elytraPanelOpen = !elytraPanelOpen;
+                    return true;
+                }
+                for (int axis = 0; axis < elytraSliderRects.length; axis++) {
+                    Rect track = elytraSliderRects[axis];
+                    if (track == null || !track.contains(event.x(), event.y())) continue;
+                    beginEdit();
+                    draggingElytraAxis = axis;
+                    setElytraSpreadFromMouse(axis, event.y());
+                    return true;
+                }
+            }
             if (event.button() == 2) {
                 // middle mouse orbits, like most 3D viewers
                 activeAxis = PoseGizmo.NONE;
@@ -2302,7 +3124,9 @@ public class PoseEditorScreen extends Screen {
             if (event.button() == 0) {
                 int hit = PoseGizmo.NONE;
                 PoseGizmo probe = null;
-                if (gizmoVisible) {
+                // Eye mode owns the selection: the viewport must not rotate a bone that is
+                // not the current edit target.
+                if (gizmoVisible && !eyesSelected) {
                     probe = buildGizmo(null, PoseGizmo.NONE);
                     hit = probe.hitTest(event.x(), event.y());
                 }
@@ -2325,9 +3149,18 @@ public class PoseEditorScreen extends Screen {
 
     @Override
     public boolean mouseDragged(MouseButtonEvent event, double dragX, double dragY) {
+        if (eyesPanelOpen) {
+            if (draggingLeftEye) setEyeFromMouse(true, event.x());
+            if (draggingRightEye) setEyeFromMouse(false, event.x());
+            return true;
+        }
         if (skinPanelOpen) return true;
         if (nameDialogOpen) return true;
-        if (activeAxis != PoseGizmo.NONE) {
+        if (draggingElytraAxis >= 0) {
+            setElytraSpreadFromMouse(draggingElytraAxis, event.y());
+            return true;
+        }
+        if (activeAxis != PoseGizmo.NONE && !eyesSelected) {
             if (moveMode) {
                 PoseGizmo gizmo = buildGizmo(null, PoseGizmo.NONE);
                 double[] dir = gizmo.axisScreenDir(activeAxis);
@@ -2348,9 +3181,10 @@ public class PoseEditorScreen extends Screen {
         }
         if (orbiting) {
             // Follow the drag: moving the empty viewport right/down turns the scene
-            // right/down instead of inverting both axes.
-            camYaw = Math.max(-89.0, Math.min(89.0, camYaw - dragX * 0.6));
-            camPitch = Math.max(-45.0, Math.min(45.0, camPitch - dragY * 0.5));
+            // right/down instead of inverting both axes. The orbit is unrestricted, so the
+            // model can be inspected from below and behind as well.
+            camYaw = wrapDegrees(camYaw - dragX * 0.6);
+            camPitch = wrapDegrees(camPitch - dragY * 0.5);
             return true;
         }
         return super.mouseDragged(event, dragX, dragY);
@@ -2358,6 +3192,15 @@ public class PoseEditorScreen extends Screen {
 
     @Override
     public boolean mouseReleased(MouseButtonEvent event) {
+        if (eyesPanelOpen) {
+            draggingLeftEye = false;
+            draggingRightEye = false;
+            return true;
+        }
+        if (draggingElytraAxis >= 0) {
+            draggingElytraAxis = -1;
+            return true;
+        }
         // A drag becomes one undo step, and only if it actually changed something.
         if (dragSnapshot != null) {
             if (changedSince(dragSnapshot)) pushUndo(dragSnapshot);
@@ -2373,6 +3216,7 @@ public class PoseEditorScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        if (eyesPanelOpen) return true;
         if (skinPanelOpen) return true;
         if (nameDialogOpen) return true;
         if (loadMenuOpen) {
@@ -2387,7 +3231,7 @@ public class PoseEditorScreen extends Screen {
             return true;
         }
         if (inViewport(mouseX, mouseY)) {
-            camZoom = Math.max(0.4, Math.min(2.5, camZoom * (1.0 + scrollY * 0.1)));
+            camZoom = Math.max(0.2, Math.min(6.0, camZoom * (1.0 + scrollY * 0.1)));
             return true;
         }
         // The wheel over the saved-pose list walks the list. Without this, poses past
@@ -2402,6 +3246,8 @@ public class PoseEditorScreen extends Screen {
 
     @Override
     public boolean charTyped(CharacterEvent event) {
+        if (sodiumDialogOpen) return true;
+        if (eyesPanelOpen) return true;
         if (skinPanelOpen) {
             return super.charTyped(event);
         }
@@ -2418,6 +3264,20 @@ public class PoseEditorScreen extends Screen {
 
     @Override
     public boolean keyPressed(KeyEvent event) {
+        if (sodiumDialogOpen) {
+            if (event.key() == 256) { // ESC: not now
+                closeSodiumDialog();
+            } else if (event.key() == 257 || event.key() == 335) { // ENTER
+                if (sodiumDialogFixed) closeSodiumDialog(); else confirmSodiumFix();
+            }
+            return true;
+        }
+        if (eyesPanelOpen) {
+            if (event.key() == 256) { // ESC: cancel the prompt, then close the panel
+                if (eyesPrompt) eyesPrompt = false; else closeEyesPanel();
+            }
+            return true;
+        }
         if (skinPanelOpen) {
             if (event.key() == 256) { // ESC closes the skin panel, not the editor
                 closeSkinPanel();
@@ -2479,6 +3339,7 @@ public class PoseEditorScreen extends Screen {
                 return true;
             }
             case 49, 50, 51, 52, 53, 54, 55, 56, 57 -> { // 1..9 select a left-bar row
+                deselectEyes();
                 int idx = event.key() - 49;
                 if (idx < ROWS.size() && !ROWS.get(idx).equals(selected)) {
                     selectRow(ROWS.get(idx));
@@ -2508,6 +3369,9 @@ public class PoseEditorScreen extends Screen {
         PlayerPoseClient.setEditorPreviewPose(null);
         PlayerPoseClient.setPoseEditorOpen(false);
         PreviewSkinManager.setActive(false);
+        EyelidManager.setActive(false);
+        eyesPanelOpen = false;
+        eyesSelected = false;
         PoseLog.dumpPoses(poseManager, "editor close");
     }
 
