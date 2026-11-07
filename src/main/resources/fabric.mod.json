@@ -4,6 +4,7 @@
   "version": "${version}",
   "name": "Cheese",
   "description": "A minecraft mod that lets you pose yourself in game.",
+  "icon": "assets/player-pose/icon.png",
   "authors": ["Tagin_T"],
   "contact": {},
   "license": "MIT",
