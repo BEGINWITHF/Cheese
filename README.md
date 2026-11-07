@@ -140,6 +140,12 @@ is you plus the tab list. Opacity is the used share: no users = no tint, 30% = 3
 The **Skin** button in the top-right of the viewport changes only the model in the
 editor:
 
+- The header has **Skin / Cape** tabs. The Skin tab loads a body skin; the Cape tab
+  previews back gear without touching your account.
+- On the Cape tab, pick one of the bundled official capes (Migrator, Mojang, Vanilla,
+  MINECON, Cherry Blossom, Purple Heart, and more) or **Import file** to load any 64x32
+  cape PNG. **Original cape** goes back to your real cape.
+- A small front view beside the list shows the picked cape.
 - One input field with a **Player / File** pair (same style as Rotate / Move) beside it.
   The active mode is highlighted and switching clears the field.
 - In Player mode, type a Mojang name and press **Load** (or Enter). That player's cape and
