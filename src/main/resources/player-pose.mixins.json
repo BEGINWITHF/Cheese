@@ -3,11 +3,16 @@
   "package": "com.example.playerpose.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
+    "CubeDefinitionAccessor",
     "ModelPartAccessor",
+    "ModelPartChildrenAccessor",
+    "PartDefinitionAccessor",
+    "PoseArmorSplitMixin",
     "PoseModelMixin",
     "PoseLivingRendererMixin",
     "PoseLimbSplitMixin",
-    "PoseCapeMixin"
+    "PoseCapeMixin",
+    "PoseElytraMixin"
   ],
   "injectors": {
     "default": {
