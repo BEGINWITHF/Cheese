@@ -3,7 +3,7 @@ plugins {
     id 'maven-publish'
 }
 
-version = project.findProperty('mod_version') ?: '2.2.1'
+version = project.findProperty('mod_version') ?: '2.2.0'
 group = project.findProperty('maven_group') ?: 'com.example'
 
 base {

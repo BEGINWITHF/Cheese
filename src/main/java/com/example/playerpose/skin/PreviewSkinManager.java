@@ -49,7 +49,7 @@ public final class PreviewSkinManager {
         thread.setDaemon(true);
         return thread;
     });
-    private static final String USER_AGENT = "Cheese/2.2.1 (Minecraft mod)";
+    private static final String USER_AGENT = "Cheese/2.2.0 (Minecraft mod)";
 
     /** An official cape texture bundled with the mod. */
     public record OfficialCape(String id, String label) {}
