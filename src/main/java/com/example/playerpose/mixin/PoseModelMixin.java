@@ -9,6 +9,7 @@ import com.example.playerpose.pose.PoseBone;
 import com.example.playerpose.pose.PoseLimbs;
 import com.example.playerpose.pose.PoseLog;
 import com.example.playerpose.pose.PoseModelAccess;
+import com.example.playerpose.skin.EyelidManager;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.model.geom.ModelPart;
@@ -94,20 +95,22 @@ public abstract class PoseModelMixin implements PoseModelAccess {
         boolean local = avatar.id == mc.player.getId();
 
         // The cape and armor layers are HumanoidModels too (armor is even baked as a
-        // PlayerModel). Only the split body model owns the joint pivots and the
-        // per-frame layer-bend table; the others still receive the pose, but must not
-        // wipe what the body model registered.
+        // PlayerModel with the same sliced limbs). Only the split skin model owns the
+        // joint pivots, the eyelid quads and the per-frame layer-bend table; armor and
+        // the cape still receive the pose, but must not wipe what the body model
+        // registered or publish pivots of their own.
         boolean playerModel = (Object) this instanceof PlayerModel
             && !((Object) this instanceof PlayerCapeModel);
-        boolean bodyModel = playerModel && child(leftArm, "left_forearm") != null;
+        boolean bodyModel = playerModel && child(head, "playerpose_left_eyelid") != null;
 
         if (bodyModel && local) LayerBends.clear();
+        if (playerModel) applyEyelids(local && PlayerPoseClient.isPoseEditorOpen());
 
         Pose pose = PlayerPoseClient.resolvePoseForEntity(mc, avatar.id);
         if (pose == null || pose.getBones() == null || pose.getBones().isEmpty()) {
             if (playerModel) {
                 resetDeform();
-                if (local) publishPivots();
+                if (bodyModel && local) publishPivots();
             }
             return;
         }
@@ -160,8 +163,9 @@ public abstract class PoseModelMixin implements PoseModelAccess {
         if (playerModel) {
             deformLimbs(pose);
             // Pivots feed the editor's gizmo. Remote players render with the same
-            // shared model classes, so only the local player may publish them.
-            if (local) publishPivots();
+            // shared model classes, and the armor model is a PlayerModel too, so only
+            // the split skin model of the local player may publish them.
+            if (bodyModel && local) publishPivots();
         }
     }
 
@@ -456,6 +460,35 @@ public abstract class PoseModelMixin implements PoseModelAccess {
     private static ModelPart child(ModelPart parent, String name) {
         if (parent == null || !parent.hasChild(name)) return null;
         return parent.getChild(name);
+    }
+
+    /** Position the two eyelid quads on the face, editor-only. */
+    private void applyEyelids(boolean editor) {
+        if (head == null) return;
+        ModelPart right = child(head, "playerpose_right_eyelid");
+        ModelPart left = child(head, "playerpose_left_eyelid");
+        boolean on = editor && EyelidManager.hasBase();
+        applyEyelid(right, on && EyelidManager.rightSupported()
+                ? EyelidManager.rightEyeBox() : null,
+            1.0F - EyelidManager.rightOpen());
+        applyEyelid(left, on && EyelidManager.leftSupported()
+                ? EyelidManager.leftEyeBox() : null,
+            1.0F - EyelidManager.leftOpen());
+    }
+
+    private static void applyEyelid(ModelPart part, EyelidManager.EyeBox box, float closed) {
+        if (part == null) return;
+        if (box == null || closed <= 0.01F) {
+            part.visible = false;
+            return;
+        }
+        part.visible = true;
+        part.x = -4.0F + box.x0();
+        part.y = -8.0F + box.y0();
+        part.z = -4.02F;
+        part.xScale = box.width();
+        part.yScale = box.height() * closed;
+        part.zScale = 1.0F;
     }
 
     /**
