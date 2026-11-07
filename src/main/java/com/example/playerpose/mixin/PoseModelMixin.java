@@ -29,7 +29,7 @@ import java.util.Map;
 import java.util.WeakHashMap;
 
 /**
- * Mixin for HumanoidModel (MC 26.2).
+ * Mixin for HumanoidModel (MC 26.3).
  *
  * <p>PoseLimbSplitMixin turns each limb into twelve one-unit slices under an empty
  * limb pivot, plus an empty forearm/shin marker at the elbow/knee centre. This mixin

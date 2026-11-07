@@ -70,7 +70,7 @@ public class PlayerPoseClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
-        LOGGER.info("Player Pose mod initializing for MC 26.2...");
+        LOGGER.info("Player Pose mod initializing for MC 26.3...");
 
         poseManager = new PoseManager();
         PoseManager.setInstance(poseManager);
@@ -93,7 +93,7 @@ public class PlayerPoseClient implements ClientModInitializer {
 
     /**
      * Skin identity used to match a saved pose to a player.
-     * MC 26.2 exposes the game profile through Entity#getGameProfile().
+     * MC 26.x exposes the game profile through Entity#getGameProfile().
      */
     public static String getLocalPlayerSkinString(Minecraft minecraft) {
         var player = minecraft.player;

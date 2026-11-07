@@ -8,7 +8,7 @@ import net.minecraft.client.Minecraft;
  * Plain helper for "is the local player currently posed?" questions.
  *
  * This used to be a @Mixin on AbstractClientPlayer targeting an addTooltip method
- * that does not exist in MC 26.2 (and it was never listed in player-pose.mixins.json,
+ * that does not exist in MC 26.x (and it was never listed in player-pose.mixins.json,
  * so it never loaded). It is kept as a normal class so callers still have the two
  * lookups; wire it to a real UI hook (tab-list / nametag tooltip) if that feature
  * is wanted later.

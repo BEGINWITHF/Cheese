@@ -5,7 +5,6 @@ import com.mojang.blaze3d.platform.InputConstants;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.minecraft.client.KeyMapping;
-import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,8 +14,8 @@ import org.slf4j.LoggerFactory;
  * Everything else lives in the editor UI (Save, Load, Reset, Delete and the mode
  * buttons), so there is nothing else to bind.
  *
- * Default is Backspace (GLFW_KEY_BACKSPACE); rebind in Options -> Controls under
- * the "Cheese" category.
+ * Default is Backspace (InputConstants.KEY_BACKSPACE); rebind in Options -> Controls
+ * under the "Cheese" category.
  */
 public final class PoseKeybinds {
 
@@ -32,7 +31,8 @@ public final class PoseKeybinds {
 
     public static void register() {
         editorBinding = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-            "key.playerpose.toggle", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_BACKSPACE, CATEGORY));
+            "key.playerpose.toggle", InputConstants.Type.KEYBOARD,
+            InputConstants.KEY_BACKSPACE, CATEGORY));
 
         ClientTickEvents.END_CLIENT_TICK.register(mc -> {
             while (editorBinding.consumeClick()) {

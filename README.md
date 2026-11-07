@@ -4,7 +4,7 @@
 
 # Cheese
 
-**Cheese** is a client-side Fabric mod for **Minecraft 26.2** that lets you pose your
+**Cheese** is a client-side Fabric mod for **Minecraft 26.3** that lets you pose your
 player model in game with a Blender-style bone gizmo. Pick a joint, drag a ring, save the
 pose, and assign it to yourself or to other players on your client.
 
@@ -45,14 +45,14 @@ and other players see their own game normally.
 
 | | |
 |---|---|
-| Minecraft | 26.2 |
-| Fabric Loader | >= 0.19.3 |
-| Fabric API | any (built against 0.158.0+26.2) |
+| Minecraft | 26.3 |
+| Fabric Loader | >= 0.20.1 |
+| Fabric API | any (built against 0.165.2+26.3) |
 | Java | >= 25 |
 
 ## Install
 
-1. Install Fabric Loader for 26.2 and put [Fabric API](https://modrinth.com/mod/fabric-api)
+1. Install Fabric Loader for 26.3 and put [Fabric API](https://modrinth.com/mod/fabric-api)
    in `mods/`.
 2. Drop `cheese-<version>.jar` into `mods/`.
 3. Start the game. The mod is client-side, so it works in singleplayer and on any server

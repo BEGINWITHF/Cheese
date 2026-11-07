@@ -24,15 +24,13 @@ import net.minecraft.client.renderer.entity.state.AvatarRenderState;
 import net.minecraft.client.renderer.entity.state.EntityRenderState;
 import net.minecraft.client.renderer.entity.state.LivingEntityRenderState;
 import net.minecraft.network.chat.Component;
-import net.minecraft.util.Util;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.PlayerModelType;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
-import org.lwjgl.PointerBuffer;
-import org.lwjgl.system.MemoryStack;
-import org.lwjgl.util.tinyfd.TinyFileDialogs;
 
+import java.awt.FileDialog;
+import java.awt.Frame;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -1660,15 +1658,9 @@ public class PoseEditorScreen extends Screen {
 
     private void browseSkinFile() {
         setSkinUseFile(true, true);
-        try (MemoryStack stack = MemoryStack.stackPush()) {
-            PointerBuffer filters = stack.mallocPointer(1);
-            filters.put(stack.UTF8("*.png"));
-            filters.flip();
-            String path = TinyFileDialogs.tinyfd_openFileDialog(
-                Component.translatable("playerpose.skin.dialogTitle").getString(),
-                "", filters,
-                Component.translatable("playerpose.skin.dialogFilter").getString(),
-                false);
+        try {
+            String path = openPngDialog(
+                Component.translatable("playerpose.skin.dialogTitle").getString());
             if (path != null && !path.isBlank()) {
                 skinInputBox.setValue(path);
                 loadSkinInput();
@@ -1680,15 +1672,9 @@ public class PoseEditorScreen extends Screen {
     }
 
     private void browseCapeFile() {
-        try (MemoryStack stack = MemoryStack.stackPush()) {
-            PointerBuffer filters = stack.mallocPointer(1);
-            filters.put(stack.UTF8("*.png"));
-            filters.flip();
-            String path = TinyFileDialogs.tinyfd_openFileDialog(
-                Component.translatable("playerpose.cape.dialogTitle").getString(),
-                "", filters,
-                Component.translatable("playerpose.cape.dialogFilter").getString(),
-                false);
+        try {
+            String path = openPngDialog(
+                Component.translatable("playerpose.cape.dialogTitle").getString());
             if (path != null && !path.isBlank()) {
                 PreviewSkinManager.importCapeFile(java.nio.file.Path.of(path),
                     this::onSkinStatus);
@@ -1696,6 +1682,35 @@ public class PoseEditorScreen extends Screen {
         } catch (Throwable error) {
             PoseLog.warn("skin preview: cape file dialog failed (%s)", error);
             onSkinStatus(Component.translatable("playerpose.skin.dialogError").getString());
+        }
+    }
+
+    /** Native PNG picker; AWT keeps working after 26.3 dropped the LWJGL dialog. */
+    private static String openPngDialog(String title) {
+        FileDialog dialog = new FileDialog((Frame) null, title, FileDialog.LOAD);
+        dialog.setFilenameFilter((dir, name) ->
+            name.toLowerCase(java.util.Locale.ROOT).endsWith(".png"));
+        dialog.setFile("*.png");
+        dialog.setVisible(true);
+        String file = dialog.getFile();
+        String dir = dialog.getDirectory();
+        dialog.dispose();
+        if (file == null || file.isBlank()) return null;
+        return dir == null ? file : new java.io.File(dir, file).getAbsolutePath();
+    }
+
+    private static void openBrowser(String url) {
+        try {
+            if (java.awt.Desktop.isDesktopSupported()) {
+                java.awt.Desktop desktop = java.awt.Desktop.getDesktop();
+                if (desktop.isSupported(java.awt.Desktop.Action.BROWSE)) {
+                    desktop.browse(java.net.URI.create(url));
+                    return;
+                }
+            }
+            PoseLog.warn("sodium guide: desktop browser is not available");
+        } catch (Throwable error) {
+            PoseLog.warn("sodium guide: cannot open browser (%s)", error);
         }
     }
 
@@ -3052,11 +3067,7 @@ public class PoseEditorScreen extends Screen {
             double my = event.y();
             if (sodiumLinkRect != null && sodiumLinkRect.contains(mx, my)) {
                 if (!SODIUM_GUIDE_URL.isEmpty()) {
-                    try {
-                        Util.getPlatform().openUri(SODIUM_GUIDE_URL);
-                    } catch (Throwable error) {
-                        PoseLog.warn("sodium guide: cannot open browser (%s)", error);
-                    }
+                    openBrowser(SODIUM_GUIDE_URL);
                 }
                 return true;
             }
