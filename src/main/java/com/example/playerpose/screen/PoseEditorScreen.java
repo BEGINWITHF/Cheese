@@ -18,6 +18,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.input.PreeditEvent;
 import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.client.renderer.entity.EntityRenderer;
 import net.minecraft.client.renderer.entity.state.AvatarRenderState;
@@ -1449,6 +1450,7 @@ public class PoseEditorScreen extends Screen {
         if (skinInputBox != null) {
             skinInputBox.setVisible(true);
             setFocused(skinInputBox);
+            skinInputBox.setFocused(true);
         }
     }
 
@@ -3115,7 +3117,10 @@ public class PoseEditorScreen extends Screen {
             if (skinTabSkinRect != null && skinTabSkinRect.contains(mx, my)) {
                 skinTab = 0;
                 applySkinMode();
-                if (skinInputBox != null) setFocused(skinInputBox);
+                if (skinInputBox != null) {
+                    setFocused(skinInputBox);
+                    skinInputBox.setFocused(true);
+                }
                 return true;
             }
             if (skinTabCapeRect != null && skinTabCapeRect.contains(mx, my)) {
@@ -3168,7 +3173,16 @@ public class PoseEditorScreen extends Screen {
                 return true;
             }
             if (skinPanelRect != null && skinPanelRect.contains(mx, my)) {
-                // Let the EditBox handle its own clicks.
+                // Focus explicitly: 26.3 routes text input through the focused widget.
+                if (skinInputBox != null && skinInputBox.visible
+                    && mx >= skinInputBox.getX()
+                    && mx < skinInputBox.getX() + skinInputBox.getWidth()
+                    && my >= skinInputBox.getY()
+                    && my < skinInputBox.getY() + skinInputBox.getHeight()) {
+                    setFocused(skinInputBox);
+                    skinInputBox.setFocused(true);
+                    if (skinInputBox.mouseClicked(event, doubleClick)) return true;
+                }
                 return super.mouseClicked(event, doubleClick);
             }
             return true;
@@ -3455,6 +3469,10 @@ public class PoseEditorScreen extends Screen {
         if (eyesPanelOpen) return true;
         if (skinPanelOpen) {
             if (skinTab == 1) return true;
+            if (skinInputBox != null && skinInputBox.isFocused()
+                && skinInputBox.charTyped(event)) {
+                return true;
+            }
             return super.charTyped(event);
         }
         if (nameDialogOpen) {
@@ -3466,6 +3484,14 @@ public class PoseEditorScreen extends Screen {
             return true;
         }
         return super.charTyped(event);
+    }
+
+    @Override
+    public boolean preeditUpdated(PreeditEvent event) {
+        if (skinPanelOpen && skinTab == 0 && skinInputBox != null) {
+            return skinInputBox.preeditUpdated(event);
+        }
+        return super.preeditUpdated(event);
     }
 
     @Override
@@ -3492,6 +3518,10 @@ public class PoseEditorScreen extends Screen {
             if (skinTab == 1) return true;
             if (event.key() == 257 || event.key() == 335) { // ENTER / keypad ENTER
                 loadSkinInput();
+                return true;
+            }
+            if (skinInputBox != null && skinInputBox.isFocused()
+                && skinInputBox.keyPressed(event)) {
                 return true;
             }
             return super.keyPressed(event);
