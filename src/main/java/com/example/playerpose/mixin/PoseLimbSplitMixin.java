@@ -68,6 +68,8 @@ public abstract class PoseLimbSplitMixin {
                 0, 16, -2.0F, 4, 0, 32, -2.0F, -1.9F, 12.0F, 0.0F, 6.0F,
                 PoseLimbs.SLICES);
 
+            addEyelids(root);
+
             PoseLog.info("model: built %d-slice bendable limbs (slim=%s)",
                 PoseLimbs.SLICES, slim);
         } catch (Throwable t) {
@@ -128,31 +130,93 @@ public abstract class PoseLimbSplitMixin {
      */
     @Inject(method = "<init>(Lnet/minecraft/client/model/geom/ModelPart;Z)V", at = @At("TAIL"))
     private void playerpose$fixSlices(ModelPart root, boolean slim, CallbackInfo ci) {
+        // UVs are normalized by the layer's declared texture size, not by the skin: the
+        // skin layer is 64x64, the armor layers are 64x32. The hand/foot end face is
+        // eleven rows away from where a one-unit slice puts it, so the row shift has to
+        // use the right height or armor samples the middle of the arm's side texture.
+        float textureHeight = isSkinModel(root) ? 64.0F : 32.0F;
         fixLimb(root, "left_arm", "left_sleeve", "left_arm_slice", "left_sleeve_slice",
-            PoseLimbs.SLICES);
+            PoseLimbs.SLICES, textureHeight);
         fixLimb(root, "right_arm", "right_sleeve", "right_arm_slice", "right_sleeve_slice",
-            PoseLimbs.SLICES);
+            PoseLimbs.SLICES, textureHeight);
         fixLimb(root, "left_leg", "left_pants", "left_leg_slice", "left_pants_slice",
-            PoseLimbs.SLICES);
+            PoseLimbs.SLICES, textureHeight);
         fixLimb(root, "right_leg", "right_pants", "right_leg_slice", "right_pants_slice",
-            PoseLimbs.SLICES);
+            PoseLimbs.SLICES, textureHeight);
+        fixEyelids(root);
+    }
+
+    /** Only the split skin model carries the eyelid quads; armor meshes never do. */
+    private static boolean isSkinModel(ModelPart root) {
+        if (root == null || !root.hasChild("head")) return false;
+        return root.getChild("head").hasChild("playerpose_left_eyelid");
+    }
+
+    private static void addEyelids(PartDefinition root) {
+        PartDefinition head = root.getChild("head");
+        if (head == null) return;
+        head.addOrReplaceChild("playerpose_right_eyelid",
+            CubeListBuilder.create().texOffs(11, 12)
+                .addBox(0.0F, 0.0F, 0.0F, 1.0F, 1.0F, 0.01F),
+            PartPose.ZERO);
+        head.addOrReplaceChild("playerpose_left_eyelid",
+            CubeListBuilder.create().texOffs(11, 12)
+                .addBox(0.0F, 0.0F, 0.0F, 1.0F, 1.0F, 0.01F),
+            PartPose.ZERO);
+    }
+
+    private static void fixEyelids(ModelPart root) {
+        if (root == null || !root.hasChild("head")) return;
+        ModelPart head = root.getChild("head");
+        fixEyelid(head, "playerpose_right_eyelid");
+        fixEyelid(head, "playerpose_left_eyelid");
+    }
+
+    /** Make every face of the eyelid cube sample one skin pixel, for a flat lid. */
+    private static void fixEyelid(ModelPart head, String name) {
+        if (head == null || !head.hasChild(name)) return;
+        ModelPart part = head.getChild(name);
+        float u = 11.5F / 64.0F;
+        float v = 12.5F / 64.0F;
+        for (ModelPart.Cube cube : ((ModelPartAccessor) (Object) part).playerpose$cubes()) {
+            for (int i = 0; i < cube.polygons.length; i++) {
+                ModelPart.Polygon polygon = cube.polygons[i];
+                ModelPart.Vertex[] old = polygon.vertices();
+                ModelPart.Vertex[] fixed = new ModelPart.Vertex[old.length];
+                for (int j = 0; j < old.length; j++) {
+                    fixed[j] = old[j].remap(u, v);
+                }
+                cube.polygons[i] = new ModelPart.Polygon(fixed, polygon.normal());
+            }
+        }
     }
 
     private static void fixLimb(ModelPart root, String limbName, String overlayName,
-                                String firstBase, String secondBase, int slices) {
+                                String firstBase, String secondBase, int slices,
+                                float textureHeight) {
         if (root == null || !root.hasChild(limbName)) return;
         ModelPart limb = root.getChild(limbName);
         ModelPart overlay = child(limb, overlayName);
+        float endShift = -(slices - 1) / textureHeight;
 
         for (int i = 0; i < slices; i++) {
             ModelPart first = child(limb, firstBase + i);
             if (first != null) {
                 // Only the shoulder/hip and wrist/ankle ends are real caps; the internal
                 // slice caps would peek out along the side of the limb as little rims.
-                if (i > 0) removeHorizontalFace(first, -1.0F);
-                if (i < slices - 1) removeHorizontalFace(first, 1.0F);
+                // Sliced armor carries the armor cube's own inflation, which has to be
+                // trimmed at the internal seams or every slice would bulge past its
+                // neighbours; with the player's zero inflation this is a no-op.
+                if (i > 0) {
+                    clampSeam(first, 0.0F, true);
+                    removeHorizontalFace(first, -1.0F);
+                }
+                if (i < slices - 1) {
+                    clampSeam(first, PoseLimbs.SLICE_H, false);
+                    removeHorizontalFace(first, 1.0F);
+                }
                 if (i == slices - 1) {
-                    shiftEndFace(first, -11.0F / 64.0F);
+                    shiftEndFace(first, endShift);
                 }
             }
 
@@ -167,7 +231,7 @@ public abstract class PoseLimbSplitMixin {
                 removeHorizontalFace(second, 1.0F);
             }
             if (i == slices - 1) {
-                shiftEndFace(second, -11.0F / 64.0F);
+                shiftEndFace(second, endShift);
             }
         }
     }
