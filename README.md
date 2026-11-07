@@ -16,6 +16,8 @@ and other players see their own game normally.
 - **Smooth limbs** — arms and legs are built from 12 texture slices. Hips, elbows and
   knees bend along a curved centreline instead of rotating around one pivot, so the back
   edge does not fold. The torso stays rigid.
+- **Gear follows the pose** — armor uses the same 12-slice limbs as the skin, and elytra
+  ride the posed torso instead of hanging straight.
 - **Bones and Poses tabs** — click the mannequin or a saved pose; the gizmo sits on the
   real joint.
 - **Multi-target loading** — every pose row has a `+` button. The panel lists yourself
@@ -99,17 +101,22 @@ to ±2 blocks per axis.
 ## What you can pose
 
 `Body`, `Head`, left/right **upper arm** and **forearm**, left/right **upper leg** and
-**shin**, and the **Cape**.
+**shin**, plus **Cape / Elytra** (one click-only chip under the mannequin).
 
 - Picking a part picks its joint. Rotations hinge where the part is attached; there is no
   separate pivot to place.
 - Arms and legs are sliced into 12 segments. The hip uses a 4-unit curved band; elbows and
   knees use a symmetric band that straddles the joint (one pixel on each side), so the
   parent segment shares the bend and the inner side does not fold.
-- The **cape** only appears when you wear one. Elytra use a separate model and are not
-  posed.
-- **Armor** uses separate single-piece limb models and does not follow a bent elbow/knee.
-  Poses with bent limbs look best without armor.
+- **Cape / Elytra** is one bone: a player can never wear both, so the editor drives the
+  model that is actually on your back and the chip/label switches between "Cape" and
+  "Elytra" by itself. If you own no cape, a **Demo** chip appears left of it and puts a
+  bundled cape on the preview; click it again to go back. In elytra mode an **Elytra
+  Control** panel at the top-left of the viewport has three vertical sliders for the
+  opening angles around X, Y and Z (X is centred so it can go negative). Click its caption
+  to fold the panel away; it starts open.
+- **Armor** is sliced exactly like the skin. Chestplates, leggings and boots bend with the
+  elbow and knee instead of staying a straight box, and they use the armor texture as-is.
 
 ## Multi-target loading
 
@@ -135,7 +142,9 @@ editor:
 
 - One input field with a **Player / File** pair (same style as Rotate / Move) beside it.
   The active mode is highlighted and switching clears the field.
-- In Player mode, type a Mojang name and press **Load** (or Enter).
+- In Player mode, type a Mojang name and press **Load** (or Enter). That player's cape and
+  elytra textures come along too, so the back of the preview matches their skin; if they
+  have no cape the preview stays capless instead of borrowing yours.
 - In File mode, paste a path or press **Browse**, then **Load**. Modern 64x64 skins and
   legacy 64x32 skins both work; legacy skins are expanded so both arms and legs render.
 - The field has no length limit, and a pasted path (a separator or `.png`) is loaded as a
@@ -146,24 +155,82 @@ editor:
 The preview never changes your actual player skin, the entity, or anything sent to the
 server. It is cleared when you close the editor.
 
+## Eyelids
+
+The **Eyes** button at the top-left of the Bones tab opens an editor-only eyelid panel. It
+never changes your real skin, the entity or anything sent to the server.
+
+- Two sliders, **L Eye** and **R Eye**. 100% is open, 0% is closed, and the eyelids are
+  real geometry on the model, so they work in every camera angle.
+- A slider only lights up when the loaded preview skin carries blink pixels for the
+  selected format; the status beside it reads `blink` or `no pixels`.
+- With no blink pixels the panel offers the bundled demo skin instead of doing nothing.
+
+| Format | What the skin has to contain |
+|---|---|
+| **SkinSpice** | Control pixel `#00C0FF` at `[0,0]`, a closed-eye copy of the face at `[24,0]`-`[31,7]`, and the same copy for the hat layer at `[56,0]`-`[63,7]` when the skin has an overlay |
+| **Just Expressions** | A small stack of eye frames in a spare head corner, usually `[24,0]`-`[31,7]` and sometimes the hat corner `[56,0]`-`[63,7]`. One row per blink phase (lash, half closed, open), both eyes side by side and mirrored. The eye boxes themselves are matched on the face, so the lids follow whatever eye position the artist used |
+
+Notes:
+
+- The two formats share the same spare corner, so a skin is one or the other. SkinSpice is
+  recognised by its control pixel and wins when both could apply.
+- The eyelid colour is the closed-frame colour from the skin, so a dark face gets dark
+  lids. Use a skin with a lighter lash colour if you need the closed eye to stand out.
+- Eye animation packs (EMF + Just Expressions/Fresh Moves) draw their own eyes; the panel
+  warns that the pack may override the preview.
+- **Load demo skin** swaps in the bundled sample, which carries both layouts so either
+  format can be tried. While the demo is loaded the same button becomes **Original skin**
+  and puts your own skin back.
+
 ## Compatibility
 
 The editor shows a **COMPAT** badge when something can override the rig. Hover it for the
-full list.
+full list. Most conflicts are cosmetic; a few need a file edit, and those are the ones
+nobody guesses on their own.
 
-- **EMF / OptiFine player CEM** (e.g. Fresh Animations: Player Extension) replaces the
-  player model. The pose is re-applied after EMF's animation, and the pack's one-piece
-  limbs bend approximately around their midpoint; disable the pack for exact elbow/knee
-  bends.
-- **Player Animator**, **Not Enough Animations**, **Emotecraft**, **Figura** and
-  **Physics Mod** can overwrite bone rotations or replace the model.
-- **Cape / wavey-cape mods** can override the cape bone.
-- **3D Skin Layers** works through a compat hook, but its second-layer bending is only
-  partial.
-- **Sodium 0.9+** bakes entity cubes and skips the per-vertex path, which hides
-  forearm/shin bends. Add `mixin.features.render.entity=false` to
-  `config/sodium-mixins.properties` and restart. The editor warns when this is not set.
-- **Armor and elytra** always use separate models.
+| Mod / feature | What you see | Fix |
+|---|---|---|
+| **Sodium 0.9+** | Forearm/shin bends and sliced armor stop following the pose, or look rigid | Edit `config/sodium-mixins.properties` (below) |
+| **3D Skin Layers** | Hat/jacket/sleeve/pants second layer bends only partly | Expected; limit or disable those layers in its settings |
+| **EMF / OptiFine player CEM** (Fresh Animations: Player Extension) | Pose applies, but one-piece limbs bend around their midpoint | Disable the pack's player model for exact elbow/knee bends |
+| **Not Enough Animations** | Walking / eating / bow / third-person actions pull the arms and legs back | Stand still for a static pose, or turn those animations off |
+| **Player Animator**, **Emotecraft** | Bone rotations are overridden while an emote plays | Nothing to change; the pose returns after the emote |
+| **Figura** | Your avatar replaces the player model, so no pose is visible | Not compatible with a custom Figura avatar |
+| **Physics Mod** | Limb or cape motion is overridden | Disable the affected physics features |
+| **Cape / wavey-cape mods** | The cape bone is overridden | Disable their cape animation |
+| Armor resource packs with remapped UVs | Stretched pixels on the armor limbs | Sliced armor assumes the vanilla 64x32 armor layout |
+
+### Sodium: the switch is not in the video settings
+
+Sodium 0.9+ bakes entity cubes and skips the per-vertex path this mod deforms. The fix is a
+config file line, not a GUI option:
+
+1. Open `config/sodium-mixins.properties` in your game directory (create the file if it is
+   missing).
+2. Add this line, or change the existing one:
+
+   ```properties
+   mixin.features.render.entity=false
+   ```
+
+3. Restart the game completely.
+
+The COMPAT badge shows the same instruction while the line is missing, and the editor offers
+a one-click **Sodium conflict detected** prompt on first open (once per game session; click
+COMPAT to reopen it). **Fix it** writes the line for you and leaves every other Sodium
+setting untouched — restart afterwards. To undo it, set the line back to `true` or delete
+it and restart; the prompt links to a step-by-step restore guide.
+
+The **Entity Culling**, **Entity Distance** and **Entity Shadows** options in Sodium's video
+settings are unrelated — turning those off does nothing for this.
+
+### 3D Skin Layers
+
+The compat hook bends the second layer together with the limb, but only approximately: the
+voxelised layer is a separate mesh, so its outer surface can separate slightly at sharp
+angles. If that bothers you, disable the specific layer (hat, jacket, sleeves, pants) in
+`config/skinlayers.json`.
 
 ## How poses are stored
 
@@ -222,16 +289,19 @@ flowchart LR
     M -->|local pose| R
     R --> A[PoseModelMixin]
     R --> B[PoseCapeMixin]
+    R --> C[PoseElytraMixin]
     A -->|rotation + translate| H[HumanoidModel bones]
-    B -->|cape part| C[PlayerCapeModel]
+    A -->|same slices| G[Armor model]
+    B -->|cape part| K[PlayerCapeModel]
+    C -->|body anchor| W[ElytraModel]
 ```
 
 The editor renders your real player model through the same GUI entity path as the
 inventory screen. The gizmo uses the live `ModelPart` pivots published by the mixins.
 `JointBend` moves cross-sections along a curved centreline for the hip, elbow and knee;
-`PoseLimbSplitMixin` builds the 12 slices, and the render mixin applies the per-player
-pose. Remote targets are resolved by UUID on each frame, so other players on your client
-can carry different poses.
+`PoseLimbSplitMixin` builds the 12 slices, `PoseArmorSplitMixin` rebuilds the armor meshes
+with the same slices, and the render mixin applies the per-player pose. Remote targets are
+resolved by UUID on each frame, so other players on your client can carry different poses.
 
 ## Notes
 
@@ -240,8 +310,8 @@ can carry different poses.
   players' clients.
 - Saved poses are matched by player name for the local skin binding; remote assignments use
   UUIDs and last for the session.
-- Armor and elytra are separate models; see
-  [What you can pose](#what-you-can-pose).
+- Armor and elytra follow the pose too; see
+  [What you can pose](#what-you-can-pose) and [Compatibility](#compatibility).
 
 ## License
 
