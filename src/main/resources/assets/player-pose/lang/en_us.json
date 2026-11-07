@@ -108,6 +108,8 @@
   "playerpose.sodium.confirm": "Fix it",
   "playerpose.sodium.cancel": "Not now",
   "playerpose.sodium.done": "Done",
+  "playerpose.sodium.restartNow": "Restart now",
+  "playerpose.sodium.later": "Later",
   "playerpose.sodium.fixed": "Done - Sodium's entity renderer is now disabled.",
   "playerpose.sodium.restart": "Restart Minecraft to apply the change.",
   "playerpose.sodium.failed": "Could not update Sodium's config. Check that this file is writable:",
