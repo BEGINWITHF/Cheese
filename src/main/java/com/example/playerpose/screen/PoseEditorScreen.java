@@ -208,7 +208,8 @@ public class PoseEditorScreen extends Screen {
      * Sodium conflict helper. The prompt is offered once per game session and can be
      * reopened by clicking the COMPAT badge while the conflict is still detected.
      */
-    private static final String SODIUM_GUIDE_URL = "https://example.com/player-pose/sodium"; // TODO: real guide
+    private static final String SODIUM_GUIDE_URL =
+        "https://raw.githubusercontent.com/BEGINWITHF/Cheese/main/docs/sodium-restore.md";
     private static boolean sodiumPromptShown;
     private boolean sodiumDialogOpen;
     private boolean sodiumDialogFixed;
