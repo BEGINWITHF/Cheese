@@ -802,12 +802,16 @@ public class PoseEditorScreen extends Screen {
         sodiumY1 = sodiumY0 + h;
         int by = sodiumY0 + 178;
         int bh = 18;
-        int confirmW = 78;
+        Component confirmLabel = Component.translatable(sodiumDialogFixed
+            ? "playerpose.sodium.restartNow" : "playerpose.sodium.confirm");
+        Component cancelLabel = Component.translatable(sodiumDialogFixed
+            ? "playerpose.sodium.later" : "playerpose.sodium.cancel");
+        int confirmW = Math.max(78, font.width(confirmLabel) + 20);
+        int cancelW = Math.max(72, font.width(cancelLabel) + 20);
         sodiumConfirmRect = new Rect(sodiumX1 - 12 - confirmW, by,
             sodiumX1 - 12, by + bh);
-        sodiumCancelRect = sodiumDialogFixed ? null
-            : new Rect(sodiumConfirmRect.x0 - 8 - 86, by,
-                sodiumConfirmRect.x0 - 8, by + bh);
+        sodiumCancelRect = new Rect(sodiumConfirmRect.x0 - 8 - cancelW, by,
+            sodiumConfirmRect.x0 - 8, by + bh);
         int linkW = font.width(Component.translatable("playerpose.sodium.link"));
         sodiumLinkRect = new Rect(sodiumX0 + 10, sodiumY0 + 155,
             sodiumX0 + 14 + linkW, sodiumY0 + 171);
@@ -867,7 +871,7 @@ public class PoseEditorScreen extends Screen {
             sodiumConfirmRect.x1, sodiumConfirmRect.y1,
             confirmHover ? 0xCC4F9A52 : 0xAA356B38);
         Component confirm = Component.translatable(sodiumDialogFixed
-            ? "playerpose.sodium.done" : "playerpose.sodium.confirm");
+            ? "playerpose.sodium.restartNow" : "playerpose.sodium.confirm");
         graphics.text(font, confirm,
             sodiumConfirmRect.x0 + (sodiumConfirmRect.x1 - sodiumConfirmRect.x0
                 - font.width(confirm)) / 2,
@@ -878,7 +882,8 @@ public class PoseEditorScreen extends Screen {
             graphics.fill(sodiumCancelRect.x0, sodiumCancelRect.y0,
                 sodiumCancelRect.x1, sodiumCancelRect.y1,
                 cancelHover ? 0xCC555566 : 0xAA333344);
-            Component cancel = Component.translatable("playerpose.sodium.cancel");
+            Component cancel = Component.translatable(sodiumDialogFixed
+                ? "playerpose.sodium.later" : "playerpose.sodium.cancel");
             graphics.text(font, cancel,
                 sodiumCancelRect.x0 + (sodiumCancelRect.x1 - sodiumCancelRect.x0
                     - font.width(cancel)) / 2,
@@ -894,9 +899,13 @@ public class PoseEditorScreen extends Screen {
     }
 
     private void closeSodiumDialog() {
+        boolean needsRestart = sodiumDialogFixed;
         sodiumDialogOpen = false;
         sodiumDialogFixed = false;
         sodiumDialogError = "";
+        if (needsRestart) {
+            setStatus(Component.translatable("playerpose.sodium.restart"));
+        }
     }
 
     private void confirmSodiumFix() {
@@ -908,6 +917,33 @@ public class PoseEditorScreen extends Screen {
         } else {
             sodiumDialogError = PoseCompat.sodiumConfig().toString();
         }
+    }
+
+    /**
+     * Start a second client with the same command line, then close this one. Used after
+     * the Sodium config change because Sodium only reads its mixin rules at startup.
+     */
+    private void restartGame() {
+        try {
+            ProcessHandle.Info info = ProcessHandle.current().info();
+            String command = info.command().orElse(null);
+            String[] args = info.arguments().orElse(null);
+            if (command == null || args == null || args.length == 0) {
+                PoseLog.warn("restart: command line unavailable, stopping only");
+            } else {
+                List<String> line = new ArrayList<>(args.length + 1);
+                line.add(command);
+                for (String arg : args) line.add(arg);
+                new ProcessBuilder(line)
+                    .directory(new java.io.File(System.getProperty("user.dir")))
+                    .inheritIO()
+                    .start();
+                PoseLog.info("restart: started a new client");
+            }
+        } catch (Throwable error) {
+            PoseLog.warn("restart: could not start a new client (%s)", error);
+        }
+        Minecraft.getInstance().stop();
     }
 
     // ---- preview skin ----------------------------------------------------
@@ -3061,7 +3097,7 @@ public class PoseEditorScreen extends Screen {
                 return true;
             }
             if (sodiumConfirmRect != null && sodiumConfirmRect.contains(mx, my)) {
-                if (sodiumDialogFixed) closeSodiumDialog(); else confirmSodiumFix();
+                if (sodiumDialogFixed) restartGame(); else confirmSodiumFix();
                 return true;
             }
             if (sodiumCancelRect != null && sodiumCancelRect.contains(mx, my)) {
@@ -3463,7 +3499,7 @@ public class PoseEditorScreen extends Screen {
             if (event.key() == 256) { // ESC: not now
                 closeSodiumDialog();
             } else if (event.key() == 257 || event.key() == 335) { // ENTER
-                if (sodiumDialogFixed) closeSodiumDialog(); else confirmSodiumFix();
+                if (sodiumDialogFixed) restartGame(); else confirmSodiumFix();
             }
             return true;
         }
