@@ -1,12 +1,10 @@
 package com.example.playerpose.compat;
 
+import com.example.playerpose.pose.PoseLog;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
-import net.minecraft.world.entity.EquipmentSlot;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -19,6 +17,9 @@ import java.nio.file.Path;
  * badge and lists them in a tooltip instead of silently ignoring the drag.
  */
 public final class PoseCompat {
+
+    private static final String SODIUM_CONFIG = "sodium-mixins.properties";
+    private static final String SODIUM_KEY = "mixin.features.render.entity";
 
     private PoseCompat() {}
 
@@ -58,25 +59,55 @@ public final class PoseCompat {
         if (mod("sodium") && !sodiumEntityRendererDisabled()) {
             out.add(Component.translatable("playerpose.compat.sodiumEntity"));
         }
+        return out;
+    }
 
-        // Vanilla layered models are not driven by the pose either.
-        if (mc.player != null) {
-            boolean armor = false;
-            boolean elytra = false;
-            for (EquipmentSlot slot : new EquipmentSlot[] {EquipmentSlot.HEAD,
-                EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET}) {
-                ItemStack stack = mc.player.getItemBySlot(slot);
-                if (stack.isEmpty()) continue;
-                if (slot == EquipmentSlot.CHEST && stack.is(Items.ELYTRA)) {
-                    elytra = true;
-                } else {
-                    armor = true;
+    /** Sodium 0.9+ is installed and its entity renderer still hides the limb bends. */
+    public static boolean sodiumConflict() {
+        return mod("sodium") && !sodiumEntityRendererDisabled();
+    }
+
+    /** The Sodium mixin config whose entity package has to be turned off. */
+    public static Path sodiumConfig() {
+        return FabricLoader.getInstance().getConfigDir().resolve(SODIUM_CONFIG);
+    }
+
+    /**
+     * Disable Sodium's entity renderer mixin in its own config. The file is edited in
+     * place so every other Sodium setting survives, and the change is picked up on the
+     * next game start. Returns false when the file cannot be written.
+     */
+    public static boolean disableSodiumEntityMixin() {
+        Path file = sodiumConfig();
+        try {
+            List<String> lines = Files.isRegularFile(file)
+                ? new ArrayList<>(Files.readAllLines(file)) : new ArrayList<>();
+            boolean replaced = false;
+            for (int i = 0; i < lines.size(); i++) {
+                String text = lines.get(i).trim();
+                if (text.isEmpty() || text.startsWith("#")) continue;
+                int eq = text.indexOf('=');
+                if (eq < 0) continue;
+                if (text.substring(0, eq).trim().equals(SODIUM_KEY)) {
+                    lines.set(i, SODIUM_KEY + "=false");
+                    replaced = true;
                 }
             }
-            if (elytra) out.add(Component.translatable("playerpose.compat.elytra"));
-            if (armor) out.add(Component.translatable("playerpose.compat.armor"));
+            if (!replaced) {
+                if (!lines.isEmpty() && !lines.get(lines.size() - 1).isBlank()) {
+                    lines.add("");
+                }
+                lines.add("# Disabled by Player Pose so posed limbs keep their shape.");
+                lines.add(SODIUM_KEY + "=false");
+            }
+            if (file.getParent() != null) Files.createDirectories(file.getParent());
+            Files.write(file, lines);
+            PoseLog.info("compat: set %s=false in %s", SODIUM_KEY, file);
+            return true;
+        } catch (Throwable error) {
+            PoseLog.warn("compat: cannot update %s (%s)", file, error);
+            return false;
         }
-        return out;
     }
 
     private static boolean mod(String id) {
