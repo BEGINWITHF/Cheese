@@ -50,12 +50,15 @@ public abstract class PoseCapeMixin {
                 if (bone.isRest()) continue;
 
                 // The rest pose carries the 180-degree Y yaw that faces the cape
-                // backwards; a pose rotation is added to it, never used alone.
+                // backwards; a pose rotation is added to it, never used alone. That flip
+                // also inverts the local X axis, so the X pose value is negated to keep the
+                // gizmo's X pointing the same way as the rest of the model.
                 var rest = cape.getInitialPose();
                 float rx = rest == null ? 0.0F : rest.xRot();
                 float ry = rest == null ? 0.0F : rest.yRot();
                 float rz = rest == null ? 0.0F : rest.zRot();
-                cape.setRotation(rx + (float) bone.x, ry + (float) bone.y, rz + (float) bone.z);
+                cape.setRotation(rx - (float) bone.x, ry + (float) bone.y,
+                    rz + (float) bone.z);
 
                 double dx = bone.tx;
                 double dy = bone.ty;
