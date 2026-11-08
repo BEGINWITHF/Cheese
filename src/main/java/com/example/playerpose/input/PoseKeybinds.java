@@ -3,7 +3,7 @@ package com.example.playerpose.input;
 import com.example.playerpose.PlayerPoseClient;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
+import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.KeyMapping;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,8 +30,8 @@ public final class PoseKeybinds {
     private PoseKeybinds() {}
 
     public static void register() {
-        editorBinding = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-            "key.playerpose.toggle", InputConstants.Type.KEYBOARD,
+        editorBinding = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+            "key.playerpose.toggle", InputConstants.Type.KEYSYM,
             InputConstants.KEY_BACKSPACE, CATEGORY));
 
         ClientTickEvents.END_CLIENT_TICK.register(mc -> {

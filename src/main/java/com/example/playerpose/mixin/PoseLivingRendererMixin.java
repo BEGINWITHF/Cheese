@@ -11,7 +11,7 @@ import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.entity.LivingEntityRenderer;
 import net.minecraft.client.renderer.entity.state.HumanoidRenderState;
 import net.minecraft.client.renderer.entity.state.LivingEntityRenderState;
-import net.minecraft.client.renderer.state.level.CameraRenderState;
+import net.minecraft.client.renderer.state.CameraRenderState;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -40,7 +40,7 @@ public abstract class PoseLivingRendererMixin {
         method = "submit(Lnet/minecraft/client/renderer/entity/state/LivingEntityRenderState;"
             + "Lcom/mojang/blaze3d/vertex/PoseStack;"
             + "Lnet/minecraft/client/renderer/SubmitNodeCollector;"
-            + "Lnet/minecraft/client/renderer/state/level/CameraRenderState;)V",
+            + "Lnet/minecraft/client/renderer/state/CameraRenderState;)V",
         at = @At(
             value = "INVOKE",
             target = "Lnet/minecraft/client/model/EntityModel;setupAnim(Ljava/lang/Object;)V",
