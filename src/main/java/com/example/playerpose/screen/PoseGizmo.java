@@ -1,6 +1,6 @@
 package com.example.playerpose.screen;
 
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import com.example.playerpose.compat.GuiGraphicsExtractor;
 
 /**
  * Blender-style transform gizmo.

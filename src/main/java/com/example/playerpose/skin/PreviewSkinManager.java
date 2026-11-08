@@ -201,8 +201,7 @@ public final class PreviewSkinManager {
 
     /** Pixels of the picked cape, for the panel thumbnail; null when none is picked. */
     public static NativeImage capePixels() {
-        return chosenCapePixels != null && !chosenCapePixels.isClosed()
-            ? chosenCapePixels : null;
+        return chosenCapePixels;
     }
 
     /** Which menu entry is picked ("migrator", "file", ...); empty when none. */
@@ -540,7 +539,7 @@ public final class PreviewSkinManager {
     /** Copy of the active preview texture pixels, for eye composition. */
     public static NativeImage copyPixels() {
         NativeImage source;
-        if (active && pixels != null && !pixels.isClosed()) {
+        if (active && pixels != null) {
             source = pixels;
         } else {
             // No preview skin: the eyes panel still inspects the skin the player really
@@ -574,7 +573,7 @@ public final class PreviewSkinManager {
             AbstractTexture texture = mc.getTextureManager().getTexture(id);
             if (texture instanceof DynamicTexture dynamic) {
                 NativeImage image = dynamic.getPixels();
-                if (image != null && !image.isClosed()) return image;
+                if (image != null) return image;
             }
         } catch (Throwable ignored) {
             // not registered yet: fall through to the resource lookup

@@ -1,6 +1,7 @@
 package com.example.playerpose.screen;
 
 import com.example.playerpose.PlayerPoseClient;
+import com.example.playerpose.compat.GuiGraphicsExtractor;
 import com.example.playerpose.compat.PoseCompat;
 import com.example.playerpose.pose.Pose;
 import com.example.playerpose.pose.PoseBone;
@@ -11,14 +12,13 @@ import com.example.playerpose.skin.PreviewSkinManager;
 import com.mojang.blaze3d.platform.NativeImage;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
-import net.minecraft.client.input.PreeditEvent;
 import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.client.renderer.entity.EntityRenderer;
 import net.minecraft.client.renderer.entity.state.AvatarRenderState;
@@ -1108,7 +1108,7 @@ public class PoseEditorScreen extends Screen {
         graphics.fill(thumbX, thumbY, thumbX + thumbSize, thumbY + thumbSize,
             0xFF0B0C10);
         var face = PreviewSkinManager.pixels();
-        if (face != null && !face.isClosed()) {
+        if (face != null) {
             drawSkinFace(graphics, face, thumbX, thumbY, thumbSize);
         } else {
             Component none = Component.translatable("playerpose.skin.noPreview");
@@ -1120,14 +1120,14 @@ public class PoseEditorScreen extends Screen {
         // Widgets draw before this panel; render the controls again on top so the
         // modal never sits underneath the left-panel buttons.
         if (skinPlayerBtn != null && skinPlayerBtn.visible) {
-            skinPlayerBtn.extractRenderState(graphics, mouseX, mouseY, partialTick);
+            skinPlayerBtn.render(graphics.delegate(), mouseX, mouseY, partialTick);
         }
         if (skinFileBtn != null && skinFileBtn.visible) {
-            skinFileBtn.extractRenderState(graphics, mouseX, mouseY, partialTick);
+            skinFileBtn.render(graphics.delegate(), mouseX, mouseY, partialTick);
         }
         drawSkinModeGroup(graphics);
         if (skinInputBox != null && skinInputBox.visible) {
-            skinInputBox.extractRenderState(graphics, mouseX, mouseY, partialTick);
+            skinInputBox.render(graphics.delegate(), mouseX, mouseY, partialTick);
         }
     }
 
@@ -1202,7 +1202,7 @@ public class PoseEditorScreen extends Screen {
     /** Draw the cape texture's front region (10x16) scaled up. */
     private void drawCapeThumb(GuiGraphicsExtractor graphics, int x, int y, int scale) {
         NativeImage image = PreviewSkinManager.capePixels();
-        if (image == null || image.isClosed()) return;
+        if (image == null) return;
         for (int py = 0; py < 16; py++) {
             for (int px = 0; px < 10; px++) {
                 int color = image.getPixel(px, py);
@@ -1488,10 +1488,7 @@ public class PoseEditorScreen extends Screen {
             skinInputBox.setVisible(true);
             setFocused(skinInputBox);
             skinInputBox.setFocused(true);
-            Minecraft mc = Minecraft.getInstance();
-            mc.textInputManager().startTextInput(skinInputBox);
-            mc.textInputManager().setTextInputArea(skinInputBox.getX(), skinInputBox.getY(),
-                skinInputBox.getWidth(), skinInputBox.getHeight());
+            // 1.21.11 EditBox drives OS text input / IME from focus alone.
         }
     }
 
@@ -1536,7 +1533,6 @@ public class PoseEditorScreen extends Screen {
         if (skinInputBox != null) {
             skinInputBox.setVisible(false);
             skinInputBox.setFocused(false);
-            Minecraft.getInstance().textInputManager().stopTextInput(skinInputBox);
         }
     }
 
@@ -1857,16 +1853,11 @@ public class PoseEditorScreen extends Screen {
         nameDialogText = forNew ? "" : (workingPose.getName() == null ? "" : workingPose.getName());
         nameDialogOpen = true;
         nameDialogLayout();
-        Minecraft mc = Minecraft.getInstance();
-        mc.textInputManager().startTextInput(this);
-        mc.textInputManager().setTextInputArea(nameDialogX0 + 10, nameDialogY0 + 24,
-            nameDialogX1 - nameDialogX0 - 20, 20);
     }
 
     private void closeNameDialog() {
         nameDialogOpen = false;
         nameDialogText = "";
-        Minecraft.getInstance().textInputManager().stopTextInput(this);
     }
 
     /** Apply the dialog: create a new draft, or rename the current draft. */
@@ -2348,7 +2339,8 @@ public class PoseEditorScreen extends Screen {
     // ---- rendering -------------------------------------------------------
 
     @Override
-    public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+    public void render(GuiGraphics rawGraphics, int mouseX, int mouseY, float partialTick) {
+        GuiGraphicsExtractor graphics = new GuiGraphicsExtractor(rawGraphics);
         graphics.fill(0, 0, width, height, 0xFF101018);
         graphics.fill(0, height - STATUS_H, width, height, 0x30FFFFFF);
 
@@ -2366,7 +2358,7 @@ public class PoseEditorScreen extends Screen {
         drawList(graphics, font, mouseX, mouseY);
         drawStatusBar(graphics, font);
 
-        super.extractRenderState(graphics, mouseX, mouseY, partialTick);
+        super.render(rawGraphics, mouseX, mouseY, partialTick);
 
         // On top of the widgets, so the group border and the mode marker stay visible.
         drawModeGroup(graphics);
@@ -3221,7 +3213,7 @@ public class PoseEditorScreen extends Screen {
                 return true;
             }
             if (skinPanelRect != null && skinPanelRect.contains(mx, my)) {
-                // Focus explicitly: 26.3 routes text input through the focused widget.
+                // Focus explicitly: 1.21.11 routes text input through the focused widget.
                 if (skinInputBox != null && skinInputBox.visible
                     && mx >= skinInputBox.getX()
                     && mx < skinInputBox.getX() + skinInputBox.getWidth()
@@ -3229,10 +3221,6 @@ public class PoseEditorScreen extends Screen {
                     && my < skinInputBox.getY() + skinInputBox.getHeight()) {
                     setFocused(skinInputBox);
                     skinInputBox.setFocused(true);
-                    Minecraft.getInstance().textInputManager().startTextInput(skinInputBox);
-                    Minecraft.getInstance().textInputManager().setTextInputArea(
-                        skinInputBox.getX(), skinInputBox.getY(),
-                        skinInputBox.getWidth(), skinInputBox.getHeight());
                     if (skinInputBox.mouseClicked(event, doubleClick)) return true;
                 }
                 return super.mouseClicked(event, doubleClick);
@@ -3539,14 +3527,6 @@ public class PoseEditorScreen extends Screen {
     }
 
     @Override
-    public boolean preeditUpdated(PreeditEvent event) {
-        if (skinPanelOpen && skinTab == 0 && skinInputBox != null) {
-            return skinInputBox.preeditUpdated(event);
-        }
-        return super.preeditUpdated(event);
-    }
-
-    @Override
     public boolean keyPressed(KeyEvent event) {
         if (sodiumDialogOpen) {
             if (event.key() == 256) { // ESC: not now
@@ -3651,7 +3631,6 @@ public class PoseEditorScreen extends Screen {
     private void cleanupEditor() {
         if (cleanedUp) return;
         cleanedUp = true;
-        Minecraft.getInstance().textInputManager().stopTextInput();
         PoseLog.info("editor close: working='%s' active=%s",
             workingPose == null || workingPose.getName() == null || workingPose.getName().isBlank()
                 ? "(unsaved)" : workingPose.getName(),
