@@ -17,6 +17,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Turns each player limb into a continuous, finely sliced mesh instead of two rigid
@@ -199,6 +200,8 @@ public abstract class PoseLimbSplitMixin {
         ModelPart overlay = child(limb, overlayName);
         float endShift = -(slices - 1) / textureHeight;
 
+        addPlacementCube(limb, limbName, firstBase, slices);
+
         for (int i = 0; i < slices; i++) {
             ModelPart first = child(limb, firstBase + i);
             if (first != null) {
@@ -234,6 +237,38 @@ public abstract class PoseLimbSplitMixin {
                 shiftEndFace(second, endShift);
             }
         }
+    }
+
+    /**
+     * The vanilla limb cube was replaced by the slice children, so the limb pivot has
+     * no cubes of its own. StuckInBodyLayer picks a random body part and calls
+     * ModelPart.getRandomCube, which crashes with "Bound must be positive" when that
+     * part is empty (for example the inventory preview of a player with arrows stuck
+     * in them). Keep an invisible cube with the original limb bounds so arrow
+     * placement still lands on the limb.
+     */
+    private static void addPlacementCube(ModelPart limb, String limbName, String firstBase,
+                                         int slices) {
+        if (limb == null) return;
+        ModelPartAccessor accessor = (ModelPartAccessor) (Object) limb;
+        List<ModelPart.Cube> cubes = accessor.playerpose$cubes();
+        if (!cubes.isEmpty()) return;
+        ModelPart first = child(limb, firstBase + "0");
+        if (first == null) return;
+        List<ModelPart.Cube> sliceCubes =
+            ((ModelPartAccessor) (Object) first).playerpose$cubes();
+        if (sliceCubes.isEmpty()) return;
+        ModelPart.Cube base = sliceCubes.get(0);
+        ModelPart.Cube anchor = new ModelPart.Cube(0, 0,
+            first.x + base.minX, first.y + base.minY, first.z + base.minZ,
+            base.maxX - base.minX, slices * (base.maxY - base.minY),
+            base.maxZ - base.minZ,
+            0.0F, 0.0F, 0.0F, false, 64.0F, 64.0F, Set.of());
+        // The baked cube list is unmodifiable, so hand the part a new list.
+        List<ModelPart.Cube> replaced = new java.util.ArrayList<>(cubes);
+        replaced.add(anchor);
+        accessor.playerpose$setCubes(replaced);
+        PoseLog.info("model: %s keeps an invisible placement cube for stuck projectiles", limbName);
     }
 
     private static ModelPart child(ModelPart parent, String name) {
