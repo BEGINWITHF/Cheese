@@ -2,6 +2,7 @@ package com.example.playerpose.mixin;
 
 import net.minecraft.client.model.geom.ModelPart;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Mutable;
 import org.spongepowered.asm.mixin.gen.Accessor;
 
 import java.util.List;
@@ -12,4 +13,8 @@ public interface ModelPartAccessor {
 
     @Accessor("cubes")
     List<ModelPart.Cube> playerpose$cubes();
+
+    @Mutable
+    @Accessor("cubes")
+    void playerpose$setCubes(List<ModelPart.Cube> cubes);
 }
