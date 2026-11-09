@@ -2629,7 +2629,7 @@ public class PoseEditorScreen extends Screen {
         rot.mul(pitchQ);
 
         Vector3f offset = new Vector3f(0.0F, state.boundingBoxHeight / 2.0F, 0.0F);
-        graphics.entity(state, (float) modelPxPerBlock(), offset, rot, pitchQ,
+        graphics.entity(state, renderer, (float) modelPxPerBlock(), offset, rot, pitchQ,
             vpX0, vpY0, vpX1, vpY1);
     }
 

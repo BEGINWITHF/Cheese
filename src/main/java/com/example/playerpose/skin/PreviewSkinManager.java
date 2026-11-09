@@ -169,7 +169,7 @@ public final class PreviewSkinManager {
             NativeImage image = NativeImage.read(in);
             ResourceLocation id = ResourceLocation.fromNamespaceAndPath("player-pose",
                 "preview/cape_" + (counter++));
-            DynamicTexture texture = new DynamicTexture(() -> "cheese demo cape", image);
+            DynamicTexture texture = new DynamicTexture(image);
             mc.getTextureManager().register(id, texture);
             demoCapeId = id;
             demoCapeTexture = id;
@@ -275,7 +275,7 @@ public final class PreviewSkinManager {
         releaseChosenCape();
         ResourceLocation id = ResourceLocation.fromNamespaceAndPath("player-pose",
             "preview/cape_" + (counter++));
-        DynamicTexture texture = new DynamicTexture(() -> "cheese preview cape", image);
+        DynamicTexture texture = new DynamicTexture(image);
         Minecraft.getInstance().getTextureManager().register(id, texture);
         chosenCapeId = id;
         chosenCapeTexture = id;
@@ -474,7 +474,7 @@ public final class PreviewSkinManager {
             NativeImage image = NativeImage.read(png);
             ResourceLocation id = ResourceLocation.fromNamespaceAndPath("player-pose",
                 "preview/" + name + "_" + (counter++));
-            DynamicTexture texture = new DynamicTexture(() -> "cheese preview " + name, image);
+            DynamicTexture texture = new DynamicTexture(image);
             Minecraft.getInstance().getTextureManager().register(id, texture);
             idOut[0] = id;
             return id;
@@ -679,7 +679,7 @@ public final class PreviewSkinManager {
         releaseTexture();
         ResourceLocation id = ResourceLocation.fromNamespaceAndPath("player-pose",
             "preview/skin_" + (counter++));
-        DynamicTexture texture = new DynamicTexture(() -> "cheese preview skin", image);
+        DynamicTexture texture = new DynamicTexture(image);
         mc.getTextureManager().register(id, texture);
 
         textureId = id;

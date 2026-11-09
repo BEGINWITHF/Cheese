@@ -377,7 +377,7 @@ public final class EyelidManager {
             releaseTexture();
             textureId = ResourceLocation.fromNamespaceAndPath("player-pose",
                 "preview/eyelids_" + (counter++));
-            texture = new DynamicTexture(() -> "cheese eyelids", next);
+            texture = new DynamicTexture(next);
             mc.getTextureManager().register(textureId, texture);
             needsNewTexture = false;
             PoseLog.info("eyelids: texture %s (%dx%d)", textureId,
