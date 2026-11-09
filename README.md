@@ -1,58 +1,78 @@
-<p align="center">
+﻿<p align="center">
   <img src="docs/banner.png" alt="Cheese - a Minecraft pose editor">
 </p>
 
 # Cheese
 
-**Cheese** is a client-side Fabric mod for **Minecraft 26.3** that lets you pose your
+**Cheese** is a client-side Fabric mod for **Minecraft 1.21.11** that lets you pose your
 player model in game with a Blender-style bone gizmo. Pick a joint, drag a ring, save the
 pose, and assign it to yourself or to other players on your client.
 
 Everything is visual and local: poses are never sent to the server, do not move hitboxes,
 and other players see their own game normally.
 
+## Supported versions
+
+One jar covers one compatibility group. Use the jar that matches your Minecraft version.
+
+| Minecraft | Branch | Jar |
+|---|---|---|
+| 1.21.9-1.21.11 | `1.21.11/stable` | `cheese-2.2.0-1.21.9-1.21.11.jar` |
+| 1.21.6-1.21.8 | `1.21.8/stable` | `cheese-2.2.0-beta-1.21.6-1.21.8.jar` |
+| 1.21.5 | `1.21.5/stable` | `cheese-2.2.0-beta-1.21.5.jar` |
+| 1.21.4 | `1.21.4/stable` | `cheese-2.2.0-beta-1.21.4.jar` |
+| 1.21.2-1.21.3 | `1.21.3/stable` | `cheese-2.2.0-beta-1.21.2-1.21.3.jar` |
+| 1.21-1.21.1 | `1.21.1/stable` | `cheese-2.2.0-beta-1.21-1.21.1.jar` |
+| 1.20.5-1.20.6 | `1.20.6/stable` | `cheese-2.2.0-beta-1.20.5-1.20.6.jar` |
+| 1.20.3-1.20.4 | `1.20.4/stable` | `cheese-2.2.0-beta-1.20.3-1.20.4.jar` |
+| 1.20.2 | `1.20.2/stable` | `cheese-2.2.0-beta-1.20.2.jar` |
+| 1.20-1.20.1 | `1.20.1/stable` | `cheese-2.2.0-beta-1.20-1.20.1.jar` |
+
+`main` tracks the latest line (currently 1.21.11). Repository branches and release
+rules are documented in `docs/repository-layout.md` and `docs/versioning.md`.
+
 ## Features
 
-- **Smooth limbs** — arms and legs are built from 12 texture slices. Hips, elbows and
+- **Smooth limbs** â€” arms and legs are built from 12 texture slices. Hips, elbows and
   knees bend along a curved centreline instead of rotating around one pivot, so the back
   edge does not fold. The torso stays rigid.
-- **Gear follows the pose** — armor uses the same 12-slice limbs as the skin, and elytra
+- **Gear follows the pose** â€” armor uses the same 12-slice limbs as the skin, and elytra
   ride the posed torso instead of hanging straight.
-- **Bones and Poses tabs** — click the mannequin or a saved pose; the gizmo sits on the
+- **Bones and Poses tabs** â€” click the mannequin or a saved pose; the gizmo sits on the
   real joint.
-- **Multi-target loading** — every pose row has a `+` button. The panel lists yourself
+- **Multi-target loading** â€” every pose row has a `+` button. The panel lists yourself
   and every online player; checkboxes apply immediately and support adding or removing
   targets. `Select all` flips to `Deselect all` when everyone is checked.
-- **One pose per player** — checking a different pose replaces that player's previous
+- **One pose per player** â€” checking a different pose replaces that player's previous
   pose.
-- **Usage tint** — a pose row's background follows the share of online players using it:
+- **Usage tint** â€” a pose row's background follows the share of online players using it:
   unused = no tint, 30% = 30% opacity, 50% = 50%, 100% = opaque.
-- **Unload all** — clears your pose and every remote assignment in one click.
-- **Preview skin** — the Skin button at the top-right of the viewport loads a Mojang
+- **Unload all** â€” clears your pose and every remote assignment in one click.
+- **Preview skin** â€” the Skin button at the top-right of the viewport loads a Mojang
   player's skin or a local PNG (64x64, or legacy 64x32). It is editor-only, supports
   Classic/Slim and has an Original skin button.
-- **Clean start** — the panel opens on the Poses tab with nothing selected. Press **New**
+- **Clean start** â€” the panel opens on the Poses tab with nothing selected. Press **New**
   or pick a saved pose before editing.
-- **New / Rename dialog** — names are entered in a modal, not by typing into a name field;
+- **New / Rename dialog** â€” names are entered in a modal, not by typing into a name field;
   renames are drafts until **Save**.
-- **Standing check** — the panel only opens when you are standing still and upright on
+- **Standing check** â€” the panel only opens when you are standing still and upright on
   solid ground. Crawling, swimming, sneaking, sleeping, riding, climbing, water/lava and
   elytra are blocked.
-- **Compatibility warnings** — the COMPAT badge lists model/animation overrides and
+- **Compatibility warnings** â€” the COMPAT badge lists model/animation overrides and
   explains what to disable.
 
 ## Requirements
 
 | | |
 |---|---|
-| Minecraft | 26.3 |
+| Minecraft | 1.21.11 |
 | Fabric Loader | >= 0.20.1 |
-| Fabric API | any (built against 0.165.2+26.3) |
-| Java | >= 25 |
+| Fabric API | any (built against 0.141.6+1.21.11) |
+| Java | >= 21 |
 
 ## Install
 
-1. Install Fabric Loader for 26.3 and put [Fabric API](https://modrinth.com/mod/fabric-api)
+1. Install Fabric Loader for 1.21.11 and put [Fabric API](https://modrinth.com/mod/fabric-api)
    in `mods/`.
 2. Drop `cheese-<version>.jar` into `mods/`.
 3. Start the game. The mod is client-side, so it works in singleplayer and on any server
@@ -61,12 +81,12 @@ and other players see their own game normally.
 ## Quick start
 
 1. Stand still and upright, then press **Backspace** to open the panel. (Rebind it in
-   *Options → Controls → Cheese*.)
+   *Options â†’ Controls â†’ Cheese*.)
 2. The panel opens on **Poses**. Press **New** and enter a name, or click a saved pose to
    edit it.
-3. Click a part on the mannequin (or press `1`–`9`), then drag a ring to rotate it. Switch
+3. Click a part on the mannequin (or press `1`â€“`9`), then drag a ring to rotate it. Switch
    to **Move** to drag an axis line instead.
-4. Press **Save**. A new pose is not applied just by closing the editor — save first.
+4. Press **Save**. A new pose is not applied just by closing the editor â€” save first.
 5. Click the **`+`** next to the pose and tick yourself and/or any online players. Each
    checkbox applies or removes the pose immediately.
 6. Press **Done** or `ESC`. Remote assignments stay until you uncheck them, press
@@ -82,7 +102,7 @@ carries at most one pose. Ticking a player for another pose replaces the previou
 | `Backspace` | Open/close the panel (rebindable; requires standing still and upright) |
 | `Bones` / `Poses` tabs | Switch between the mannequin and the saved-pose list |
 | Click a part on the mannequin | Select that bone |
-| `1`–`9` | Select a bone by row (cape is click-only) |
+| `1`â€“`9` | Select a bone by row (cape is click-only) |
 | Click a pose row | Select it for editing (amber frame) |
 | `+` on a pose row | Open the multi-target panel |
 | Click the name bar | Open the Rename dialog (applied by **Save**) |
@@ -95,8 +115,8 @@ carries at most one pose. Ticking a player for another pose replaces the previou
 | `Ctrl+Z` / `Ctrl+Y` | Undo / redo (one step per drag) |
 | `ESC` | Close the panel |
 
-Red is **X**, green is **Y**, blue is **Z**. Rotations are clamped to ±180°, translations
-to ±2 blocks per axis.
+Red is **X**, green is **Y**, blue is **Z**. Rotations are clamped to Â±180Â°, translations
+to Â±2 blocks per axis.
 
 ## What you can pose
 
@@ -225,11 +245,11 @@ config file line, not a GUI option:
 The COMPAT badge shows the same instruction while the line is missing, and the editor offers
 a one-click **Sodium conflict detected** prompt on first open (once per game session; click
 COMPAT to reopen it). **Fix it** writes the line for you and leaves every other Sodium
-setting untouched — restart afterwards. To undo it, set the line back to `true` or delete
+setting untouched â€” restart afterwards. To undo it, set the line back to `true` or delete
 it and restart; the prompt links to a step-by-step restore guide.
 
 The **Entity Culling**, **Entity Distance** and **Entity Shadows** options in Sodium's video
-settings are unrelated — turning those off does nothing for this.
+settings are unrelated â€” turning those off does nothing for this.
 
 ### 3D Skin Layers
 
@@ -254,7 +274,7 @@ Plain JSON in `config/player-pose/`, one file per pose:
 
 - `x/y/z` are rotations in radians; `tx/ty/tz` are translations in model units (16 units =
   1 block).
-- The cape's rest rotation is 180° around Y; a cape pose's `y` is added to that, so `0`
+- The cape's rest rotation is 180Â° around Y; a cape pose's `y` is added to that, so `0`
   keeps it hanging normally.
 - `skin` is the local binding used when picking the pose for a skin. Remote targets are
   tracked per player UUID for the current session; they are not saved to disk.
@@ -262,7 +282,7 @@ Plain JSON in `config/player-pose/`, one file per pose:
   separate, so assigning a pose to another player does not unbind yours.
 - Files are read at startup and written on save, so saved poses survive restarts.
 - Plain ASCII names keep their name as the file name; other names get a readable stem plus
-  a short hash (e.g. `挥手~bc5f31b3.json`), so non-ASCII names cannot overwrite each
+  a short hash (e.g. `æŒ¥æ‰‹~bc5f31b3.json`), so non-ASCII names cannot overwrite each
   other. The `name` inside the file is unchanged.
 
 ## Diagnostics
@@ -282,7 +302,7 @@ state dump of all poses. Useful when a pose is not the one you expected:
 ./gradlew build          # -> build/libs/cheese-<version>.jar
 ```
 
-Java 25 is required. The first build resolves Minecraft, mappings and Fabric Loom from the
+Java 21 is required for the 1.21.x line; 1.20.5+ also uses 21, while 1.20.1-1.20.4 use Java 17. The first build resolves Minecraft, mappings and Fabric Loom from the
 network; later builds work offline (`--offline`).
 
 ## How it works
@@ -311,7 +331,7 @@ resolved by UUID on each frame, so other players on your client can carry differ
 
 ## Notes
 
-- **Open Panel** defaults to **Backspace**; rebind under *Controls → Cheese*.
+- **Open Panel** defaults to **Backspace**; rebind under *Controls â†’ Cheese*.
 - This is a visual, client-side mod: poses do not move hitboxes and are invisible to other
   players' clients.
 - Saved poses are matched by player name for the local skin binding; remote assignments use
@@ -321,4 +341,5 @@ resolved by UUID on each frame, so other players on your client can carry differ
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT â€” see [LICENSE](LICENSE).
+

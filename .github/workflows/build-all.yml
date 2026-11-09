@@ -1,0 +1,75 @@
+name: Build version lines
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: 1.21.11
+            ref: 1.21.11/stable
+            java: 21
+          - name: 1.21.8
+            ref: 1.21.8/stable
+            java: 21
+          - name: 1.21.5
+            ref: 1.21.5/stable
+            java: 21
+          - name: 1.21.4
+            ref: 1.21.4/stable
+            java: 21
+          - name: 1.21.3
+            ref: 1.21.3/stable
+            java: 21
+          - name: 1.21.1
+            ref: 1.21.1/stable
+            java: 21
+          - name: 1.20.6
+            ref: 1.20.6/stable
+            java: 21
+          - name: 1.20.4
+            ref: 1.20.4/stable
+            java: 17
+          - name: 1.20.2
+            ref: 1.20.2/stable
+            java: 17
+          - name: 1.20.1
+            ref: 1.20.1/stable
+            java: 17
+
+    steps:
+      - name: Check out ${{ matrix.ref }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
+
+      - name: Set up Java ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build
+        run: ./gradlew build --no-daemon
+
+      - name: Upload jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: cheese-${{ matrix.name }}
+          path: |
+            build/libs/*.jar
+            !build/libs/*-sources.jar
+          if-no-files-found: error
