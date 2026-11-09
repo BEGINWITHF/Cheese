@@ -17,6 +17,8 @@ One jar covers one compatibility group. Use the jar that matches your Minecraft 
 
 | Minecraft | Branch | Jar |
 |---|---|---|
+| 26.2 | `26.2/stable` | `cheese-2.1.0-26.2.jar` |
+| 26.1 | `26.1/stable` | `cheese-2.1.0-beta-26.1.jar` |
 | 1.21.9-1.21.11 | `1.21.11/stable` | `cheese-2.2.0-1.21.9-1.21.11.jar` |
 | 1.21.6-1.21.8 | `1.21.8/stable` | `cheese-2.2.0-beta-1.21.6-1.21.8.jar` |
 | 1.21.5 | `1.21.5/stable` | `cheese-2.2.0-beta-1.21.5.jar` |

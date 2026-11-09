@@ -90,10 +90,11 @@ Groups are provisional until each one compiles and runs. A group gets one jar wh
 
 The 26.x line keeps its existing releases:
 
-| Minecraft | Release | Tag |
-|---|---|---|
-| 26.2 | `v2.1.0-26.2` | `v2.1.0` |
-| 26.3 | `v2.2.0-26.3` | `v2.2.0` |
+| Minecraft | Branch | Release | Tag |
+|---|---|---|---|
+| 26.1 | `26.1/stable` | `v2.1.0-beta-26.1` (prepared) | — |
+| 26.2 | `26.2/stable` | `v2.1.0-26.2` | `v2.1.0` |
+| 26.3 | `main` | `v2.2.0-26.3` | `v2.2.0` |
 
 ## 1.20 compatibility groups
 
