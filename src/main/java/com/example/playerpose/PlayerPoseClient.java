@@ -108,7 +108,7 @@ public class PlayerPoseClient implements ClientModInitializer {
 
     /** The screen currently shown, or null when the player is in the world. */
     public static net.minecraft.client.gui.screens.Screen currentScreen(Minecraft minecraft) {
-        return minecraft.gui.screen();
+        return minecraft.screen;
     }
 
     /**
@@ -177,16 +177,16 @@ public class PlayerPoseClient implements ClientModInitializer {
         // presses New, or picks a saved pose from the list. This keeps opening the
         // panel from silently editing/renaming whatever was last active.
         PoseLog.dumpPoses(mgr, "editor open");
-        mc.gui.setScreen(new PoseEditorScreen(mgr, null, skin));
+        mc.setScreen(new PoseEditorScreen(mgr, null, skin));
         poseEditorOpen = true;
         LOGGER.info("Opened pose editor for skin: {}", skin);
     }
 
     public static void closePoseEditor() {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.gui.screen() instanceof PoseEditorScreen) {
+        if (mc.screen instanceof PoseEditorScreen) {
             // PoseEditorScreen#removed() clears the preview and the open flag.
-            mc.gui.setScreen(null);
+            mc.setScreen(null);
         }
         // Defensive, and also needed when the screen was replaced without removed()
         // (world unload or another mod taking over the screen): a stuck flag would stop
@@ -404,3 +404,4 @@ public class PlayerPoseClient implements ClientModInitializer {
     public static PoseManager getPoseManager() { return poseManager; }
     public static void setPoseEditorOpen(boolean open) { poseEditorOpen = open; }
 }
+
