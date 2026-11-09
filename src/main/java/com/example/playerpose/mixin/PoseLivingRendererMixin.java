@@ -7,11 +7,10 @@ import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.model.EntityModel;
 import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.model.geom.ModelPart;
-import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.entity.LivingEntityRenderer;
 import net.minecraft.client.renderer.entity.state.HumanoidRenderState;
 import net.minecraft.client.renderer.entity.state.LivingEntityRenderState;
-import net.minecraft.client.renderer.state.CameraRenderState;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -37,18 +36,17 @@ public abstract class PoseLivingRendererMixin {
     private static boolean loggedHook;
 
     @Inject(
-        method = "submit(Lnet/minecraft/client/renderer/entity/state/LivingEntityRenderState;"
+        method = "render(Lnet/minecraft/client/renderer/entity/state/LivingEntityRenderState;"
             + "Lcom/mojang/blaze3d/vertex/PoseStack;"
-            + "Lnet/minecraft/client/renderer/SubmitNodeCollector;"
-            + "Lnet/minecraft/client/renderer/state/CameraRenderState;)V",
+            + "Lnet/minecraft/client/renderer/MultiBufferSource;I)V",
         at = @At(
             value = "INVOKE",
-            target = "Lnet/minecraft/client/model/EntityModel;setupAnim(Ljava/lang/Object;)V",
+            target = "Lnet/minecraft/client/model/EntityModel;setupAnim(Lnet/minecraft/client/renderer/entity/state/EntityRenderState;)V",
             shift = At.Shift.AFTER
         )
     )
     private void playerpose$applyAfterAnimationMods(LivingEntityRenderState state, PoseStack poseStack,
-                                                    SubmitNodeCollector collector, CameraRenderState camera,
+                                                    MultiBufferSource buffers, int packedLight,
                                                     CallbackInfo ci) {
         // Only EMF needs this second pass; without it, keep the original one-pass
         // setupAnim path exactly as before.

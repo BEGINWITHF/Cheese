@@ -70,7 +70,7 @@ public class PlayerPoseClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
-        LOGGER.info("Player Pose mod initializing for MC 1.21.11...");
+        LOGGER.info("Player Pose mod initializing for MC 1.21.4...");
 
         poseManager = new PoseManager();
         PoseManager.setInstance(poseManager);
@@ -99,9 +99,9 @@ public class PlayerPoseClient implements ClientModInitializer {
         var player = minecraft.player;
         if (player == null) return "";
         var profile = player.getGameProfile();
-        // authlib 9.x made GameProfile a record: name() instead of getName().
-        if (profile != null && profile.name() != null) {
-            return profile.name();
+        // authlib 6.x still exposes GameProfile as a class with getName().
+        if (profile != null && profile.getName() != null) {
+            return profile.getName();
         }
         return "";
     }

@@ -16,17 +16,14 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.input.CharacterEvent;
-import net.minecraft.client.input.KeyEvent;
-import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.client.renderer.entity.EntityRenderer;
-import net.minecraft.client.renderer.entity.state.AvatarRenderState;
+import net.minecraft.client.renderer.entity.state.PlayerRenderState;
 import net.minecraft.client.renderer.entity.state.EntityRenderState;
 import net.minecraft.client.renderer.entity.state.LivingEntityRenderState;
+import net.minecraft.client.resources.PlayerSkin;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.player.PlayerModelType;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
@@ -141,7 +138,7 @@ public class PoseEditorScreen extends Screen {
     private Button skinPlayerBtn;
     private Button skinFileBtn;
     private int skinModeGroupX0, skinModeGroupY0, skinModeGroupX1, skinModeGroupY1;
-    private PlayerModelType skinModel = PlayerModelType.WIDE;
+    private PlayerSkin.Model skinModel = PlayerSkin.Model.WIDE;
     private String skinStatus = "";
     private Rect skinButtonRect;
     private Rect skinPanelRect;
@@ -483,10 +480,10 @@ public class PoseEditorScreen extends Screen {
             List<LoadTarget> players = new ArrayList<>();
             for (PlayerInfo info : mc.getConnection().getOnlinePlayers()) {
                 if (info == null || info.getProfile() == null
-                    || info.getProfile().id() == null) continue;
-                UUID id = info.getProfile().id();
+                    || info.getProfile().getId() == null) continue;
+                UUID id = info.getProfile().getId();
                 if (id.equals(self)) continue;
-                String name = info.getProfile().name();
+                String name = info.getProfile().getName();
                 if (name == null || name.isBlank()) name = id.toString();
                 players.add(new LoadTarget(LOAD_PLAYER, id, name));
             }
@@ -1073,7 +1070,7 @@ public class PoseEditorScreen extends Screen {
         drawSkinAction(graphics, font, skinLoadRect,
             Component.translatable("playerpose.skin.load"), true, mouseX, mouseY);
         drawSkinAction(graphics, font, skinModelRect,
-            Component.translatable(skinModel == PlayerModelType.SLIM
+            Component.translatable(skinModel == PlayerSkin.Model.SLIM
                 ? "playerpose.skin.armsSlim" : "playerpose.skin.armsClassic"),
             false, mouseX, mouseY);
         drawSkinAction(graphics, font, skinOriginalRect,
@@ -1575,7 +1572,7 @@ public class PoseEditorScreen extends Screen {
     }
 
     private void loadBlinkDemo() {
-        PlayerModelType type = PreviewSkinManager.model();
+        PlayerSkin.Model type = PreviewSkinManager.model();
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null && mc.player.getSkin() != null
             && PreviewSkinManager.pixels() == null) {
@@ -1604,9 +1601,7 @@ public class PoseEditorScreen extends Screen {
             && mouseY >= button.getY() && mouseY < button.getY() + button.getHeight();
     }
 
-    private void handleEyesClick(MouseButtonEvent event) {
-        double mx = event.x();
-        double my = event.y();
+    private void handleEyesClick(double mx, double my) {
         if (eyesPrompt) {
             if (eyesYesRect != null && eyesYesRect.contains(mx, my)) {
                 loadBlinkDemo();
@@ -1755,12 +1750,12 @@ public class PoseEditorScreen extends Screen {
     }
 
     private void toggleSkinModel() {
-        skinModel = skinModel == PlayerModelType.SLIM
-            ? PlayerModelType.WIDE : PlayerModelType.SLIM;
+        skinModel = skinModel == PlayerSkin.Model.SLIM
+            ? PlayerSkin.Model.WIDE : PlayerSkin.Model.SLIM;
         if (PreviewSkinManager.skin() != null) {
             PreviewSkinManager.setModel(skinModel, this::onSkinStatus);
         } else {
-            onSkinStatus(Component.translatable(skinModel == PlayerModelType.SLIM
+            onSkinStatus(Component.translatable(skinModel == PlayerSkin.Model.SLIM
                 ? "playerpose.skin.armsSlim" : "playerpose.skin.armsClassic").getString());
         }
     }
@@ -2601,15 +2596,13 @@ public class PoseEditorScreen extends Screen {
         if (renderer == null) return;
 
         EntityRenderState state = renderer.createRenderState(entity, partialTick);
-        if (state instanceof AvatarRenderState avatar) {
+        if (state instanceof PlayerRenderState playerState) {
             var preview = PreviewSkinManager.skin();
             if (preview != null) {
                 // Editor-only: replace the render state's skin, never the player's.
-                avatar.skin = preview;
+                playerState.skin = preview;
             }
         }
-        state.shadowPieces.clear();
-        state.outlineColor = 0;
 
         if (state instanceof LivingEntityRenderState living) {
             float scale = living.scale;
@@ -2738,8 +2731,8 @@ public class PoseEditorScreen extends Screen {
         if (mc.getConnection() != null) {
             for (PlayerInfo info : mc.getConnection().getOnlinePlayers()) {
                 if (info != null && info.getProfile() != null
-                    && info.getProfile().id() != null) {
-                    ids.add(info.getProfile().id());
+                    && info.getProfile().getId() != null) {
+                    ids.add(info.getProfile().getId());
                 }
             }
         }
@@ -3102,11 +3095,11 @@ public class PoseEditorScreen extends Screen {
     // ---- input -----------------------------------------------------------
 
     @Override
-    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (sodiumDialogOpen) {
             sodiumDialogLayout();
-            double mx = event.x();
-            double my = event.y();
+            double mx = mouseX;
+            double my = mouseY;
             if (sodiumLinkRect != null && sodiumLinkRect.contains(mx, my)) {
                 if (!SODIUM_GUIDE_URL.isEmpty()) {
                     openBrowser(SODIUM_GUIDE_URL);
@@ -3125,7 +3118,7 @@ public class PoseEditorScreen extends Screen {
         }
         // The COMPAT badge doubles as the entry point for the Sodium helper.
         if (!compatWarnings.isEmpty() && compatX1 > compatX0
-            && isOver((int) event.x(), (int) event.y(), compatX0, compatY0,
+            && isOver((int) mouseX, (int) mouseY, compatX0, compatY0,
                 compatX1 - compatX0, compatY1 - compatY0)
             && PoseCompat.sodiumConflict()) {
             openSodiumDialog();
@@ -3133,27 +3126,27 @@ public class PoseEditorScreen extends Screen {
         }
         if (eyesPanelOpen) {
             // Reset / Reset All stay usable while the panel is open, and act on the eyes.
-            if (isButtonClick(resetBtn, event.x(), event.y())) {
+            if (isButtonClick(resetBtn, mouseX, mouseY)) {
                 resetRow();
                 return true;
             }
-            if (isButtonClick(resetAllBtn, event.x(), event.y())) {
+            if (isButtonClick(resetAllBtn, mouseX, mouseY)) {
                 resetAll();
                 return true;
             }
             // Clicking the (now amber) Eyes button again just hides the sliders; the eyes
             // stay the edit target until a body part is picked.
-            if (eyesButtonRect != null && eyesButtonRect.contains(event.x(), event.y())) {
+            if (eyesButtonRect != null && eyesButtonRect.contains(mouseX, mouseY)) {
                 closeEyesPanel();
                 return true;
             }
-            handleEyesClick(event);
+            handleEyesClick(mouseX, mouseY);
             return true;
         }
         if (skinPanelOpen) {
             layoutSkinPanel();
-            int mx = (int) event.x();
-            int my = (int) event.y();
+            int mx = (int) mouseX;
+            int my = (int) mouseY;
             if (skinTabSkinRect != null && skinTabSkinRect.contains(mx, my)) {
                 skinTab = 0;
                 applySkinMode();
@@ -3221,16 +3214,16 @@ public class PoseEditorScreen extends Screen {
                     && my < skinInputBox.getY() + skinInputBox.getHeight()) {
                     setFocused(skinInputBox);
                     skinInputBox.setFocused(true);
-                    if (skinInputBox.mouseClicked(event, doubleClick)) return true;
+                    if (skinInputBox.mouseClicked(mouseX, mouseY, button)) return true;
                 }
-                return super.mouseClicked(event, doubleClick);
+                return super.mouseClicked(mouseX, mouseY, button);
             }
             return true;
         }
         if (nameDialogOpen) {
             nameDialogLayout();
-            int mx = (int) event.x();
-            int my = (int) event.y();
+            int mx = (int) mouseX;
+            int my = (int) mouseY;
             if (isOver(mx, my, nameDialogOkX0, nameDialogOkY0,
                 nameDialogOkX1 - nameDialogOkX0, CTRL_H)) {
                 confirmNameDialog();
@@ -3249,8 +3242,8 @@ public class PoseEditorScreen extends Screen {
             return true;
         }
         if (loadMenuOpen) {
-            int mx = (int) event.x();
-            int my = (int) event.y();
+            int mx = (int) mouseX;
+            int my = (int) mouseY;
             if (isOver(mx, my, loadMenuX0 + 1, loadMenuAllY0,
                 loadMenuX1 - loadMenuX0 - 2, LOAD_MENU_ROW_H)) {
                 toggleAllTargets();
@@ -3275,7 +3268,7 @@ public class PoseEditorScreen extends Screen {
         }
 
         // The name bar is read-only; clicking it opens the rename dialog.
-        if (isOver((int) event.x(), (int) event.y(), LEFT_X, 6, LEFT_W, CTRL_H)) {
+        if (isOver((int) mouseX, (int) mouseY, LEFT_X, 6, LEFT_W, CTRL_H)) {
             if (!editingPose) {
                 setStatus(Component.translatable("playerpose.status.pressNew"));
             } else {
@@ -3285,24 +3278,24 @@ public class PoseEditorScreen extends Screen {
         }
 
         // Editor-only skin preview button, top-right of the viewport.
-        if (skinButtonRect != null && skinButtonRect.contains(event.x(), event.y())) {
+        if (skinButtonRect != null && skinButtonRect.contains(mouseX, mouseY)) {
             openSkinPanel();
             return true;
         }
 
-        if (eyesButtonRect != null && eyesButtonRect.contains(event.x(), event.y())) {
+        if (eyesButtonRect != null && eyesButtonRect.contains(mouseX, mouseY)) {
             openEyesPanel();
             return true;
         }
 
         // Never let a previous drag state swallow this click.
         int previousAxis = activeAxis;
-        if (!orbiting && previousAxis != PoseGizmo.NONE && !inViewport(event.x(), event.y())) {
+        if (!orbiting && previousAxis != PoseGizmo.NONE && !inViewport(mouseX, mouseY)) {
             activeAxis = PoseGizmo.NONE;
         }
         orbiting = false;
 
-        int tab = tabAt(event.x(), event.y());
+        int tab = tabAt(mouseX, mouseY);
         if (tab >= 0) {
             setTab(tab);
             return true;
@@ -3310,20 +3303,20 @@ public class PoseEditorScreen extends Screen {
 
         if (listTab == 0) {
             if (!editingPose) {
-                if (boneAt(event.x(), event.y()) != null || inList(event.x(), event.y())) {
+                if (boneAt(mouseX, mouseY) != null || inList(mouseX, mouseY)) {
                     setStatus(Component.translatable("playerpose.status.pressNew"));
                     return true;
                 }
             }
             // Eye mode survives closing the sliders: picking a body part is what leaves it.
-            if (eyesSelected && boneAtRaw(event.x(), event.y()) != null) {
+            if (eyesSelected && boneAtRaw(mouseX, mouseY) != null) {
                 deselectEyes();
             }
-            if (capeDemoRect != null && capeDemoRect.contains(event.x(), event.y())) {
+            if (capeDemoRect != null && capeDemoRect.contains(mouseX, mouseY)) {
                 PreviewSkinManager.toggleDemoCape(this::onSkinStatus);
                 return true;
             }
-            String bone = boneAt(event.x(), event.y());
+            String bone = boneAt(mouseX, mouseY);
             if (bone != null) {
                 activeAxis = PoseGizmo.NONE;
                 // Selecting a bone brings the frame and gizmo back automatically.
@@ -3332,7 +3325,7 @@ public class PoseEditorScreen extends Screen {
                 if (!bone.equals(selected)) selectRow(bone);
                 return true;
             }
-            if (inList(event.x(), event.y())) {
+            if (inList(mouseX, mouseY)) {
                 // Empty space in the Bone figure clears the visual selection. The
                 // pose data is untouched; clicking any bone selects it again.
                 gizmoVisible = false;
@@ -3342,14 +3335,14 @@ public class PoseEditorScreen extends Screen {
                 return true;
             }
         } else {
-            int listRow = listRowAt(event.x(), event.y());
+            int listRow = listRowAt(mouseX, mouseY);
             if (listRow >= 0) {
                 activeAxis = PoseGizmo.NONE;
                 if (listRow < savedPoseNames.size()) {
                     int rowY = LIST_Y + (listRow - listScroll) * ROW_H;
                     int plusX0 = LEFT_X + LEFT_W - 14;
-                    if (event.x() >= plusX0 && event.x() < LEFT_X + LEFT_W - 4
-                        && event.y() >= rowY && event.y() < rowY + ROW_H) {
+                    if (mouseX >= plusX0 && mouseX < LEFT_X + LEFT_W - 4
+                        && mouseY >= rowY && mouseY < rowY + ROW_H) {
                         openLoadMenu(savedPoseNames.get(listRow));
                     } else {
                         selectPose(savedPoseNames.get(listRow));
@@ -3359,41 +3352,41 @@ public class PoseEditorScreen extends Screen {
             }
         }
 
-        if (inViewport(event.x(), event.y())) {
-            if (event.button() == 0) {
-                if (elytraToggleRect != null && elytraToggleRect.contains(event.x(), event.y())) {
+        if (inViewport(mouseX, mouseY)) {
+            if (button == 0) {
+                if (elytraToggleRect != null && elytraToggleRect.contains(mouseX, mouseY)) {
                     elytraPanelOpen = !elytraPanelOpen;
                     return true;
                 }
                 for (int axis = 0; axis < elytraSliderRects.length; axis++) {
                     Rect track = elytraSliderRects[axis];
-                    if (track == null || !track.contains(event.x(), event.y())) continue;
+                    if (track == null || !track.contains(mouseX, mouseY)) continue;
                     beginEdit();
                     draggingElytraAxis = axis;
-                    setElytraSpreadFromMouse(axis, event.y());
+                    setElytraSpreadFromMouse(axis, mouseY);
                     return true;
                 }
             }
-            if (event.button() == 2) {
+            if (button == 2) {
                 // middle mouse orbits, like most 3D viewers
                 activeAxis = PoseGizmo.NONE;
                 orbiting = true;
                 return true;
             }
-            if (event.button() == 0) {
+            if (button == 0) {
                 int hit = PoseGizmo.NONE;
                 PoseGizmo probe = null;
                 // Eye mode owns the selection: the viewport must not rotate a bone that is
                 // not the current edit target.
                 if (gizmoVisible && !eyesSelected) {
                     probe = buildGizmo(null, PoseGizmo.NONE);
-                    hit = probe.hitTest(event.x(), event.y());
+                    hit = probe.hitTest(mouseX, mouseY);
                 }
                 if (hit != PoseGizmo.NONE && probe != null) {
                     activeAxis = hit;
-                    dragStartAngle = PoseGizmo.angleAt(event.x(), event.y(), probe.centerX(), probe.centerY());
-                    dragStartMouseX = event.x();
-                    dragStartMouseY = event.y();
+                    dragStartAngle = PoseGizmo.angleAt(mouseX, mouseY, probe.centerX(), probe.centerY());
+                    dragStartMouseX = mouseX;
+                    dragStartMouseY = mouseY;
                     dragStartValue = moveMode ? translationFor(hit) : rotationFor(hit);
                     dragSnapshot = snapshot();
                 } else {
@@ -3403,20 +3396,20 @@ public class PoseEditorScreen extends Screen {
                 return true;
             }
         }
-        return super.mouseClicked(event, doubleClick);
+        return super.mouseClicked(mouseX, mouseY, button);
     }
 
     @Override
-    public boolean mouseDragged(MouseButtonEvent event, double dragX, double dragY) {
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
         if (eyesPanelOpen) {
-            if (draggingLeftEye) setEyeFromMouse(true, event.x());
-            if (draggingRightEye) setEyeFromMouse(false, event.x());
+            if (draggingLeftEye) setEyeFromMouse(true, mouseX);
+            if (draggingRightEye) setEyeFromMouse(false, mouseX);
             return true;
         }
         if (skinPanelOpen) return true;
         if (nameDialogOpen) return true;
         if (draggingElytraAxis >= 0) {
-            setElytraSpreadFromMouse(draggingElytraAxis, event.y());
+            setElytraSpreadFromMouse(draggingElytraAxis, mouseY);
             return true;
         }
         if (activeAxis != PoseGizmo.NONE && !eyesSelected) {
@@ -3426,12 +3419,12 @@ public class PoseEditorScreen extends Screen {
                 if (dir == null) return true; // axis points at the camera
                 double pxPerUnit = modelPxPerBlock() / 16.0;
                 if (pxPerUnit <= 0.0) return true;
-                double units = ((event.x() - dragStartMouseX) * dir[0]
-                    + (event.y() - dragStartMouseY) * dir[1]) / pxPerUnit;
+                double units = ((mouseX - dragStartMouseX) * dir[0]
+                    + (mouseY - dragStartMouseY) * dir[1]) / pxPerUnit;
                 setTranslationFor(activeAxis, dragStartValue + units);
             } else {
                 PoseGizmo gizmo = buildGizmo(null, PoseGizmo.NONE);
-                double now = PoseGizmo.angleAt(event.x(), event.y(), gizmo.centerX(), gizmo.centerY());
+                double now = PoseGizmo.angleAt(mouseX, mouseY, gizmo.centerX(), gizmo.centerY());
                 double delta = PoseGizmo.wrapAngle(now - dragStartAngle)
                     * gizmo.rotationSign(activeAxis);
                 setRotationFor(activeAxis, dragStartValue + delta);
@@ -3446,11 +3439,11 @@ public class PoseEditorScreen extends Screen {
             camPitch = wrapDegrees(camPitch - dragY * 0.5);
             return true;
         }
-        return super.mouseDragged(event, dragX, dragY);
+        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
     }
 
     @Override
-    public boolean mouseReleased(MouseButtonEvent event) {
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
         if (eyesPanelOpen) {
             draggingLeftEye = false;
             draggingRightEye = false;
@@ -3470,7 +3463,7 @@ public class PoseEditorScreen extends Screen {
             orbiting = false;
             return true;
         }
-        return super.mouseReleased(event);
+        return super.mouseReleased(mouseX, mouseY, button);
     }
 
     @Override
@@ -3504,90 +3497,90 @@ public class PoseEditorScreen extends Screen {
     }
 
     @Override
-    public boolean charTyped(CharacterEvent event) {
+    public boolean charTyped(char codePoint, int modifiers) {
         if (sodiumDialogOpen) return true;
         if (eyesPanelOpen) return true;
         if (skinPanelOpen) {
             if (skinTab == 1) return true;
             if (skinInputBox != null && skinInputBox.isFocused()
-                && skinInputBox.charTyped(event)) {
+                && skinInputBox.charTyped(codePoint, modifiers)) {
                 return true;
             }
-            return super.charTyped(event);
+            return super.charTyped(codePoint, modifiers);
         }
         if (nameDialogOpen) {
-            int cp = event.codepoint();
+            int cp = codePoint;
             if (cp >= 32
                 && nameDialogText.codePointCount(0, nameDialogText.length()) < 32) {
                 nameDialogText += new String(Character.toChars(cp));
             }
             return true;
         }
-        return super.charTyped(event);
+        return super.charTyped(codePoint, modifiers);
     }
 
     @Override
-    public boolean keyPressed(KeyEvent event) {
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (sodiumDialogOpen) {
-            if (event.key() == 256) { // ESC: not now
+            if (keyCode == 256) { // ESC: not now
                 closeSodiumDialog();
-            } else if (event.key() == 257 || event.key() == 335) { // ENTER
+            } else if (keyCode == 257 || keyCode == 335) { // ENTER
                 if (sodiumDialogFixed) restartGame(); else confirmSodiumFix();
             }
             return true;
         }
         if (eyesPanelOpen) {
-            if (event.key() == 256) { // ESC: cancel the prompt, then close the panel
+            if (keyCode == 256) { // ESC: cancel the prompt, then close the panel
                 if (eyesPrompt) eyesPrompt = false; else closeEyesPanel();
             }
             return true;
         }
         if (skinPanelOpen) {
-            if (event.key() == 256) { // ESC closes the skin panel, not the editor
+            if (keyCode == 256) { // ESC closes the skin panel, not the editor
                 closeSkinPanel();
                 return true;
             }
             if (skinTab == 1) return true;
-            if (event.key() == 257 || event.key() == 335) { // ENTER / keypad ENTER
+            if (keyCode == 257 || keyCode == 335) { // ENTER / keypad ENTER
                 loadSkinInput();
                 return true;
             }
             if (skinInputBox != null && skinInputBox.isFocused()
-                && skinInputBox.keyPressed(event)) {
+                && skinInputBox.keyPressed(keyCode, scanCode, modifiers)) {
                 return true;
             }
-            return super.keyPressed(event);
+            return super.keyPressed(keyCode, scanCode, modifiers);
         }
         if (nameDialogOpen) {
-            if (event.key() == 256) { // ESC cancels
+            if (keyCode == 256) { // ESC cancels
                 closeNameDialog();
                 return true;
             }
-            if (event.key() == 257 || event.key() == 335) { // ENTER / keypad ENTER
+            if (keyCode == 257 || keyCode == 335) { // ENTER / keypad ENTER
                 confirmNameDialog();
                 return true;
             }
-            if (event.key() == 259 && !nameDialogText.isEmpty()) { // BACKSPACE
+            if (keyCode == 259 && !nameDialogText.isEmpty()) { // BACKSPACE
                 nameDialogText = nameDialogText.substring(0,
                     nameDialogText.offsetByCodePoints(nameDialogText.length(), -1));
             }
             return true;
         }
         if (loadMenuOpen) {
-            if (event.key() == 256) { // ESC closes only the chooser, not the editor
+            if (keyCode == 256) { // ESC closes only the chooser, not the editor
                 loadMenuOpen = false;
                 return true;
             }
             return true;
         }
-        boolean ctrl = (event.modifiers() & 2) != 0; // GLFW_MOD_CONTROL
-        if (!editingPose && event.key() != 256) {
-            return super.keyPressed(event);
+        boolean ctrl = (modifiers & 2) != 0; // GLFW_MOD_CONTROL
+        if (!editingPose && keyCode != 256) {
+            return super.keyPressed(keyCode, scanCode, modifiers);
         }
         if (ctrl) {
-            switch (event.key()) {
+            switch (keyCode) {
                 case 90 -> { // Z: undo, or redo with shift
-                    if ((event.modifiers() & 1) != 0) redo(); else undo();
+                    if ((modifiers & 1) != 0) redo(); else undo();
                     return true;
                 }
                 case 89 -> { // Y: redo
@@ -3596,9 +3589,9 @@ public class PoseEditorScreen extends Screen {
                 }
                 default -> { }
             }
-            return super.keyPressed(event);
+            return super.keyPressed(keyCode, scanCode, modifiers);
         }
-        switch (event.key()) {
+        switch (keyCode) {
             case 82 -> { // R
                 setMode(false);
                 return true;
@@ -3609,7 +3602,7 @@ public class PoseEditorScreen extends Screen {
             }
             case 49, 50, 51, 52, 53, 54, 55, 56, 57 -> { // 1..9 select a left-bar row
                 deselectEyes();
-                int idx = event.key() - 49;
+                int idx = keyCode - 49;
                 if (idx < ROWS.size() && !ROWS.get(idx).equals(selected)) {
                     selectRow(ROWS.get(idx));
                 }
@@ -3618,7 +3611,7 @@ public class PoseEditorScreen extends Screen {
             default -> { }
         }
         // Screen#keyPressed closes on ESC when shouldCloseOnEsc() is true.
-        return super.keyPressed(event);
+        return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     private boolean cleanedUp;

@@ -5,9 +5,10 @@ import com.example.playerpose.pose.BoneMath;
 import com.example.playerpose.pose.Pose;
 import com.example.playerpose.pose.PoseBone;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.model.HumanoidModel;
+import net.minecraft.client.model.PlayerCapeModel;
 import net.minecraft.client.model.geom.ModelPart;
-import net.minecraft.client.model.player.PlayerCapeModel;
-import net.minecraft.client.renderer.entity.state.AvatarRenderState;
+import net.minecraft.client.renderer.entity.state.PlayerRenderState;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -34,10 +35,10 @@ public abstract class PoseCapeMixin {
     @Shadow private ModelPart cape;
 
     @Inject(
-        method = "setupAnim(Lnet/minecraft/client/renderer/entity/state/AvatarRenderState;)V",
+        method = "setupAnim(Lnet/minecraft/client/renderer/entity/state/PlayerRenderState;)V",
         at = @At("TAIL")
     )
-    private void playerpose$applyCapePose(AvatarRenderState state, CallbackInfo ci) {
+    private void playerpose$applyCapePose(PlayerRenderState state, CallbackInfo ci) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
         if (state.id != mc.player.getId()) return; // AvatarRenderState#id is the entity id
@@ -75,7 +76,7 @@ public abstract class PoseCapeMixin {
         // Published after the pose is on, so the editor gets the cape's real position
         // (including its translate). The cape hangs off the body, so compose its local
         // pivot with the body's posed position and rotation to get model space.
-        ModelPart body = ((PlayerCapeModel) (Object) this).body;
+        ModelPart body = ((HumanoidModel<?>) (Object) this).body;
         double[] off = BoneMath.rotateZYX(cape.x, cape.y, cape.z, body.xRot, body.yRot, body.zRot);
         PlayerPoseClient.publishJointPivot("cape",
             (float) (body.x + off[0]), (float) (body.y + off[1]), (float) (body.z + off[2]));

@@ -4,7 +4,7 @@ import com.example.playerpose.pose.PoseLog;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -147,7 +147,7 @@ public final class PoseCompat {
 
     private static boolean hasResource(Minecraft mc, String path) {
         return mc.getResourceManager()
-            .getResource(Identifier.fromNamespaceAndPath("minecraft", path))
+            .getResource(ResourceLocation.fromNamespaceAndPath("minecraft", path))
             .isPresent();
     }
 }

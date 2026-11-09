@@ -8,7 +8,7 @@ import net.minecraft.client.model.geom.builders.CubeDeformation;
 import net.minecraft.client.model.geom.builders.CubeListBuilder;
 import net.minecraft.client.model.geom.builders.MeshDefinition;
 import net.minecraft.client.model.geom.builders.PartDefinition;
-import net.minecraft.client.model.player.PlayerModel;
+import net.minecraft.client.model.PlayerModel;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -324,12 +324,13 @@ public abstract class PoseLimbSplitMixin {
                 boolean changed = false;
                 for (int j = 0; j < old.length; j++) {
                     ModelPart.Vertex v = old[j];
-                    float y = v.y();
+                    float y = v.pos().y;
                     if (below ? y < seam : y > seam) {
                         y = seam;
                         changed = true;
                     }
-                    fixed[j] = y == v.y() ? v : new ModelPart.Vertex(v.x(), y, v.z(), v.u(), v.v());
+                    fixed[j] = y == v.pos().y ? v
+                        : new ModelPart.Vertex(v.pos().x, y, v.pos().z, v.u(), v.v());
                 }
                 if (changed) cube.polygons[i] = new ModelPart.Polygon(fixed, polygon.normal());
             }

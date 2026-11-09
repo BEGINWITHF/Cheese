@@ -2,6 +2,7 @@ package com.example.playerpose.mixin;
 
 import com.example.playerpose.pose.PoseLimbs;
 import com.example.playerpose.pose.PoseLog;
+import net.minecraft.client.model.HumanoidArmorModel;
 import net.minecraft.client.model.geom.PartPose;
 import net.minecraft.client.model.geom.builders.CubeDefinition;
 import net.minecraft.client.model.geom.builders.CubeDeformation;
@@ -9,8 +10,6 @@ import net.minecraft.client.model.geom.builders.CubeListBuilder;
 import net.minecraft.client.model.geom.builders.MeshDefinition;
 import net.minecraft.client.model.geom.builders.PartDefinition;
 import net.minecraft.client.model.geom.builders.UVPair;
-import net.minecraft.client.model.player.PlayerModel;
-import net.minecraft.client.renderer.entity.ArmorModelSet;
 import org.joml.Vector3fc;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -31,32 +30,26 @@ import java.util.List;
  * code path the skin limbs already use in {@link PoseLimbSplitMixin} and
  * {@link PoseModelMixin}.</p>
  */
-@Mixin(PlayerModel.class)
+@Mixin(HumanoidArmorModel.class)
 public abstract class PoseArmorSplitMixin {
 
     @Inject(
-        method = "createArmorMeshSet(Lnet/minecraft/client/model/geom/builders/CubeDeformation;"
-            + "Lnet/minecraft/client/model/geom/builders/CubeDeformation;)"
-            + "Lnet/minecraft/client/renderer/entity/ArmorModelSet;",
+        method = "createBodyLayer(Lnet/minecraft/client/model/geom/builders/CubeDeformation;)"
+            + "Lnet/minecraft/client/model/geom/builders/MeshDefinition;",
         at = @At("RETURN")
     )
-    private static void playerpose$sliceArmorLimbs(CubeDeformation inner, CubeDeformation outer,
-                                                   CallbackInfoReturnable<ArmorModelSet<MeshDefinition>> cir) {
-        ArmorModelSet<MeshDefinition> set = cir.getReturnValue();
-        if (set == null) return;
+    private static void playerpose$sliceArmorLimbs(CubeDeformation deformation,
+                                                   CallbackInfoReturnable<MeshDefinition> cir) {
+        MeshDefinition mesh = cir.getReturnValue();
+        if (mesh == null) return;
         try {
-            // The four slots share the same humanoid source mesh; retainExactParts already
-            // removed the parts that slot does not use, so slicing every limb is safe.
-            MeshDefinition[] meshes = {set.head(), set.chest(), set.legs(), set.feet()};
+            // 1.21.4 bakes one shared humanoid armor mesh for all four slots.
+            PartDefinition root = mesh.getRoot();
             int sliced = 0;
-            for (MeshDefinition mesh : meshes) {
-                if (mesh == null) continue;
-                PartDefinition root = mesh.getRoot();
-                sliced += slice(root, "left_arm", "left_forearm");
-                sliced += slice(root, "right_arm", "right_forearm");
-                sliced += slice(root, "left_leg", "left_shin");
-                sliced += slice(root, "right_leg", "right_shin");
-            }
+            sliced += slice(root, "left_arm", "left_forearm");
+            sliced += slice(root, "right_arm", "right_forearm");
+            sliced += slice(root, "left_leg", "left_shin");
+            sliced += slice(root, "right_leg", "right_shin");
             PoseLog.info("armor: built %d-slice bendable armor limbs (%d part(s))",
                 PoseLimbs.SLICES, sliced);
         } catch (Throwable t) {

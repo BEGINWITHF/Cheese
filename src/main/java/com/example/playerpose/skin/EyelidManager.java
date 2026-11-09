@@ -4,9 +4,8 @@ import com.example.playerpose.pose.PoseLog;
 import com.mojang.blaze3d.platform.NativeImage;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.DynamicTexture;
-import net.minecraft.core.ClientAsset;
-import net.minecraft.resources.Identifier;
-import net.minecraft.world.entity.player.PlayerSkin;
+import net.minecraft.client.resources.PlayerSkin;
+import net.minecraft.resources.ResourceLocation;
 
 /**
  * Editor-only eyelid preview.
@@ -43,7 +42,7 @@ public final class EyelidManager {
 
     private static NativeImage base;
     private static NativeImage composed;
-    private static Identifier textureId;
+    private static ResourceLocation textureId;
     private static DynamicTexture texture;
     private static PlayerSkin skin;
     private static PlayerSkinTypeSnapshot built;
@@ -72,7 +71,7 @@ public final class EyelidManager {
         public int height() { return y1 - y0; }
     }
 
-    private record PlayerSkinTypeSnapshot(net.minecraft.world.entity.player.PlayerModelType model) {}
+    private record PlayerSkinTypeSnapshot(PlayerSkin.Model model) {}
 
     public static void setActive(boolean value) {
         active = value;
@@ -376,9 +375,9 @@ public final class EyelidManager {
         // the preview changed was what made the model render with another skin's pixels.
         if (texture == null || textureId == null || needsNewTexture) {
             releaseTexture();
-            textureId = Identifier.fromNamespaceAndPath("player-pose",
+            textureId = ResourceLocation.fromNamespaceAndPath("player-pose",
                 "preview/eyelids_" + (counter++));
-            texture = new DynamicTexture(() -> "cheese eyelids", next);
+            texture = new DynamicTexture(next);
             mc.getTextureManager().register(textureId, texture);
             needsNewTexture = false;
             PoseLog.info("eyelids: texture %s (%dx%d)", textureId,
@@ -388,13 +387,13 @@ public final class EyelidManager {
             texture.upload();
         }
         if (built == null || built.model() != model) {
-            ClientAsset.ResourceTexture body = new ClientAsset.ResourceTexture(textureId, textureId);
+            ResourceLocation body = textureId;
             PlayerSkin original = mc.player != null ? mc.player.getSkin() : null;
             // Keep missing cape/elytra missing instead of reusing the body texture, which
             // rendered the player's own skin on their back. A demo cape still wins.
-            ClientAsset.Texture cape = PreviewSkinManager.effectiveCape();
-            ClientAsset.Texture elytra = original != null ? original.elytra() : null;
-            skin = PlayerSkin.insecure(body, cape, elytra, model);
+            ResourceLocation cape = PreviewSkinManager.effectiveCape();
+            ResourceLocation elytra = original != null ? original.elytraTexture() : null;
+            skin = new PlayerSkin(body, null, cape, elytra, model, false);
             built = new PlayerSkinTypeSnapshot(model);
         }
         dirty = false;
