@@ -70,7 +70,7 @@ public class PlayerPoseClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
-        LOGGER.info("Player Pose mod initializing for MC 1.21.8...");
+        LOGGER.info("Player Pose mod initializing for MC 1.20.4...");
 
         poseManager = new PoseManager();
         PoseManager.setInstance(poseManager);
