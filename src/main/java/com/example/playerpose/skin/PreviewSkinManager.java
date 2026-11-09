@@ -8,7 +8,7 @@ import com.mojang.blaze3d.platform.NativeImage;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.AbstractTexture;
 import net.minecraft.client.renderer.texture.DynamicTexture;
-import net.minecraft.client.resources.PlayerSkin;
+import com.example.playerpose.compat.PlayerSkin;
 import net.minecraft.resources.ResourceLocation;
 
 import java.io.IOException;
@@ -163,8 +163,8 @@ public final class PreviewSkinManager {
         // player's cape must not leak onto their back.
         if (fetchedGear) return fetchedCapeTexture;
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player != null && mc.player.getSkin() != null) {
-            return mc.player.getSkin().capeTexture();
+        if (mc.player != null && PlayerSkin.of(mc.player) != null) {
+            return PlayerSkin.of(mc.player).capeTexture();
         }
         return cape;
     }
@@ -332,7 +332,7 @@ public final class PreviewSkinManager {
     /** Rebuild the preview PlayerSkin from whatever body/cape are currently active. */
     private static void rebuildSkin() {
         Minecraft mc = Minecraft.getInstance();
-        PlayerSkin original = mc.player != null ? mc.player.getSkin() : null;
+        PlayerSkin original = mc.player != null ? PlayerSkin.of(mc.player) : null;
         if (bodyTexture == null && original != null) {
             // No preview body: the model must match the player's real skin.
             model = original.model();
@@ -588,7 +588,7 @@ public final class PreviewSkinManager {
     private static NativeImage currentSkinImage() {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return null;
-        PlayerSkin skin = mc.player.getSkin();
+        PlayerSkin skin = PlayerSkin.of(mc.player);
         if (skin == null || skin.texture() == null) return null;
         ResourceLocation id = skin.texture();
         if (id == null) return null;
@@ -694,7 +694,7 @@ public final class PreviewSkinManager {
             fail("No player to preview", feedback);
             return;
         }
-        PlayerSkin original = mc.player.getSkin();
+        PlayerSkin original = PlayerSkin.of(mc.player);
         if (original == null) {
             image.close();
             fail("No player skin available", feedback);

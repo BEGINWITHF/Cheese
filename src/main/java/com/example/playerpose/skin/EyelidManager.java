@@ -4,7 +4,7 @@ import com.example.playerpose.pose.PoseLog;
 import com.mojang.blaze3d.platform.NativeImage;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.DynamicTexture;
-import net.minecraft.client.resources.PlayerSkin;
+import com.example.playerpose.compat.PlayerSkin;
 import net.minecraft.resources.ResourceLocation;
 
 /**
@@ -387,7 +387,7 @@ public final class EyelidManager {
             texture.upload();
         }
         if (built == null || built.model() != model) {
-            PlayerSkin original = mc.player != null ? mc.player.getSkin() : null;
+            PlayerSkin original = mc.player != null ? PlayerSkin.of(mc.player) : null;
             // Keep missing cape/elytra missing instead of reusing the body texture, which
             // rendered the player's own skin on their back. A demo cape still wins.
             ResourceLocation cape = PreviewSkinManager.effectiveCape();

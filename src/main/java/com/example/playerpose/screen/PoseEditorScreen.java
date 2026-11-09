@@ -21,7 +21,7 @@ import com.example.playerpose.compat.KeyEvent;
 import com.example.playerpose.compat.MouseButtonEvent;
 import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.network.chat.Component;
-import net.minecraft.client.resources.PlayerSkin;
+import com.example.playerpose.compat.PlayerSkin;
 import net.minecraft.world.entity.LivingEntity;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
@@ -1019,20 +1019,17 @@ public class PoseEditorScreen extends Screen {
             skinInputBox.setX(x + 140);
             skinInputBox.setY(y + 28);
             skinInputBox.setWidth(208);
-            skinInputBox.setHeight(CTRL_H);
             skinInputBox.setVisible(true);
         }
         if (skinPlayerBtn != null) {
             skinPlayerBtn.setX(x + 14);
             skinPlayerBtn.setY(y + 28);
             skinPlayerBtn.setWidth(56);
-            skinPlayerBtn.setHeight(CTRL_H);
         }
         if (skinFileBtn != null) {
             skinFileBtn.setX(x + 72);
             skinFileBtn.setY(y + 28);
             skinFileBtn.setWidth(56);
-            skinFileBtn.setHeight(CTRL_H);
         }
         skinModeGroupX0 = x + 12;
         skinModeGroupY0 = y + 26;
@@ -1573,9 +1570,9 @@ public class PoseEditorScreen extends Screen {
     private void loadBlinkDemo() {
         PlayerSkin.Model type = PreviewSkinManager.model();
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player != null && mc.player.getSkin() != null
+        if (mc.player != null && PlayerSkin.of(mc.player) != null
             && PreviewSkinManager.pixels() == null) {
-            type = mc.player.getSkin().model();
+            type = PlayerSkin.of(mc.player).model();
         }
         PreviewSkinManager.loadBundledDemo(type, this::onEyesMessage);
         EyelidManager.refresh();
@@ -3481,7 +3478,7 @@ public class PoseEditorScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollY) {
         if (eyesPanelOpen) return true;
         if (skinPanelOpen) return true;
         if (nameDialogOpen) return true;
@@ -3507,7 +3504,12 @@ public class PoseEditorScreen extends Screen {
             listScroll = Math.max(0, Math.min(listScroll + step, maxListScroll()));
             return true;
         }
-        return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+        // 1.20.1 Screen inherits the ContainerEventHandler default rather than
+        // declaring its own override, so dispatch to the children directly.
+        for (var child : children()) {
+            if (child.mouseScrolled(mouseX, mouseY, scrollY)) return true;
+        }
+        return false;
     }
 
     @Override
