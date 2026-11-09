@@ -12,7 +12,8 @@
     "PoseLivingRendererMixin",
     "PoseLimbSplitMixin",
     "PoseCapeMixin",
-    "PoseElytraMixin"
+    "PoseElytraMixin",
+    "PreviewSkinMixin"
   ],
   "injectors": {
     "default": {

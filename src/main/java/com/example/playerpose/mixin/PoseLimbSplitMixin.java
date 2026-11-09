@@ -1,5 +1,6 @@
 package com.example.playerpose.mixin;
 
+import com.example.playerpose.compat.PoseCubeAccess;
 import com.example.playerpose.pose.PoseLimbs;
 import com.example.playerpose.pose.PoseLog;
 import net.minecraft.client.model.geom.ModelPart;
@@ -15,7 +16,6 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 
@@ -180,14 +180,15 @@ public abstract class PoseLimbSplitMixin {
         float u = 11.5F / 64.0F;
         float v = 12.5F / 64.0F;
         for (ModelPart.Cube cube : ((ModelPartAccessor) (Object) part).playerpose$cubes()) {
-            for (int i = 0; i < cube.polygons.length; i++) {
-                ModelPart.Polygon polygon = cube.polygons[i];
-                ModelPart.Vertex[] old = polygon.vertices();
-                ModelPart.Vertex[] fixed = new ModelPart.Vertex[old.length];
-                for (int j = 0; j < old.length; j++) {
-                    fixed[j] = old[j].remap(u, v);
+            PoseCubeAccess access = PoseCubeAccess.of(cube);
+            for (int i = 0; i < access.playerpose$polygonCount(); i++) {
+                float[] data = access.playerpose$vertices(i);
+                for (int j = 0; j + 4 < data.length; j += 5) {
+                    data[j + 3] = u;
+                    data[j + 4] = v;
                 }
-                cube.polygons[i] = new ModelPart.Polygon(fixed, polygon.normal());
+                float[] normal = access.playerpose$normal(i);
+                access.playerpose$setPolygon(i, data, normal[0], normal[1], normal[2]);
             }
         }
     }
@@ -280,15 +281,15 @@ public abstract class PoseLimbSplitMixin {
     private static void shiftEndFace(ModelPart part, float dv) {
         List<ModelPart.Cube> cubes = ((ModelPartAccessor) (Object) part).playerpose$cubes();
         for (ModelPart.Cube cube : cubes) {
-            for (int i = 0; i < cube.polygons.length; i++) {
-                ModelPart.Polygon polygon = cube.polygons[i];
-                if (polygon.normal().y() < 0.5F) continue; // +Y = hand/foot end
-                ModelPart.Vertex[] old = polygon.vertices();
-                ModelPart.Vertex[] fixed = new ModelPart.Vertex[old.length];
-                for (int j = 0; j < old.length; j++) {
-                    fixed[j] = old[j].remap(old[j].u(), old[j].v() + dv);
+            PoseCubeAccess access = PoseCubeAccess.of(cube);
+            for (int i = 0; i < access.playerpose$polygonCount(); i++) {
+                float[] normal = access.playerpose$normal(i);
+                if (normal[1] < 0.5F) continue; // +Y = hand/foot end
+                float[] data = access.playerpose$vertices(i);
+                for (int j = 0; j + 4 < data.length; j += 5) {
+                    data[j + 4] += dv;
                 }
-                cube.polygons[i] = new ModelPart.Polygon(fixed, polygon.normal());
+                access.playerpose$setPolygon(i, data, normal[0], normal[1], normal[2]);
             }
         }
     }
@@ -301,14 +302,16 @@ public abstract class PoseLimbSplitMixin {
     private static void removeHorizontalFace(ModelPart part, float normalY) {
         List<ModelPart.Cube> cubes = ((ModelPartAccessor) (Object) part).playerpose$cubes();
         for (ModelPart.Cube cube : cubes) {
-            for (int i = 0; i < cube.polygons.length; i++) {
-                ModelPart.Polygon polygon = cube.polygons[i];
-                if (Math.abs(polygon.normal().y() - normalY) > 0.5F) continue;
-                ModelPart.Vertex[] old = polygon.vertices();
-                if (old.length == 0) continue;
-                ModelPart.Vertex[] degenerate = new ModelPart.Vertex[old.length];
-                Arrays.fill(degenerate, old[0]);
-                cube.polygons[i] = new ModelPart.Polygon(degenerate, polygon.normal());
+            PoseCubeAccess access = PoseCubeAccess.of(cube);
+            for (int i = 0; i < access.playerpose$polygonCount(); i++) {
+                float[] normal = access.playerpose$normal(i);
+                if (Math.abs(normal[1] - normalY) > 0.5F) continue;
+                float[] data = access.playerpose$vertices(i);
+                if (data.length < 5) continue;
+                for (int j = 5; j + 4 < data.length; j += 5) {
+                    System.arraycopy(data, 0, data, j, 5);
+                }
+                access.playerpose$setPolygon(i, data, normal[0], normal[1], normal[2]);
             }
         }
     }
@@ -317,22 +320,21 @@ public abstract class PoseLimbSplitMixin {
     private static void clampSeam(ModelPart part, float seam, boolean below) {
         List<ModelPart.Cube> cubes = ((ModelPartAccessor) (Object) part).playerpose$cubes();
         for (ModelPart.Cube cube : cubes) {
-            for (int i = 0; i < cube.polygons.length; i++) {
-                ModelPart.Polygon polygon = cube.polygons[i];
-                ModelPart.Vertex[] old = polygon.vertices();
-                ModelPart.Vertex[] fixed = new ModelPart.Vertex[old.length];
+            PoseCubeAccess access = PoseCubeAccess.of(cube);
+            for (int i = 0; i < access.playerpose$polygonCount(); i++) {
+                float[] data = access.playerpose$vertices(i);
                 boolean changed = false;
-                for (int j = 0; j < old.length; j++) {
-                    ModelPart.Vertex v = old[j];
-                    float y = v.pos().y;
+                for (int j = 0; j + 4 < data.length; j += 5) {
+                    float y = data[j + 1];
                     if (below ? y < seam : y > seam) {
-                        y = seam;
+                        data[j + 1] = seam;
                         changed = true;
                     }
-                    fixed[j] = y == v.pos().y ? v
-                        : new ModelPart.Vertex(v.pos().x, y, v.pos().z, v.u(), v.v());
                 }
-                if (changed) cube.polygons[i] = new ModelPart.Polygon(fixed, polygon.normal());
+                if (changed) {
+                    float[] normal = access.playerpose$normal(i);
+                    access.playerpose$setPolygon(i, data, normal[0], normal[1], normal[2]);
+                }
             }
         }
     }

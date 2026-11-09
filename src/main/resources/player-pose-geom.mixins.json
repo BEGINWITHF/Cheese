@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "package": "net.minecraft.client.model.geom",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "PoseCubeMixin",
+    "PosePolygonMixin"
+  ],
+  "injectors": {
+    "default": {
+      "onNotFound": "FAIL"
+    }
+  }
+}

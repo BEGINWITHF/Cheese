@@ -236,7 +236,7 @@ public final class EyelidManager {
         int minX = 8, minY = 8, maxX = -1, maxY = -1;
         for (int y = 0; y < 8; y++) {
             for (int x = 0; x < 8; x++) {
-                if ((base.getPixel(originX + x, originY + y) >>> 24) == 0) continue;
+                if ((base.getPixelRGBA(originX + x, originY + y) >>> 24) == 0) continue;
                 minX = Math.min(minX, x);
                 minY = Math.min(minY, y);
                 maxX = Math.max(maxX, x);
@@ -260,7 +260,7 @@ public final class EyelidManager {
         int count = 0;
         for (int y = strip.y0() + 1; y < strip.y1(); y++) {
             for (int x = strip.x0(); x < strip.x1(); x++) {
-                int color = base.getPixel(x, y);
+                int color = base.getPixelRGBA(x, y);
                 if ((color >>> 24) == 0) continue;
                 int luminance = (((color >> 16) & 0xFF) + ((color >> 8) & 0xFF) + (color & 0xFF)) / 3;
                 if (luminance < 26) continue;
@@ -278,14 +278,14 @@ public final class EyelidManager {
 
     /** Lid colour: the closed frame is drawn in the top row of the strip. */
     private static int stripLidColor(Box strip) {
-        int best = base.getPixel(strip.x0(), strip.y0());
+        int best = base.getPixelRGBA(strip.x0(), strip.y0());
         int bestCount = -1;
         for (int x = strip.x0(); x < strip.x1(); x++) {
-            int color = base.getPixel(x, strip.y0());
+            int color = base.getPixelRGBA(x, strip.y0());
             if ((color >>> 24) == 0) continue;
             int count = 0;
             for (int other = strip.x0(); other < strip.x1(); other++) {
-                if (base.getPixel(other, strip.y0()) == color) count++;
+                if (base.getPixelRGBA(other, strip.y0()) == color) count++;
             }
             if (count > bestCount) { bestCount = count; best = color; }
         }
@@ -293,12 +293,12 @@ public final class EyelidManager {
     }
 
     private static boolean isSkinSpice(NativeImage image) {
-        int marker = image.getPixel(0, 0);
+        int marker = image.getPixelRGBA(0, 0);
         return (marker >>> 24) > 0 && (marker & 0xFFFFFF) == 0x00C0FF;
     }
 
     private static boolean opaque(NativeImage image, int x, int y) {
-        return (image.getPixel(x, y) >>> 24) > 0;
+        return (image.getPixelRGBA(x, y) >>> 24) > 0;
     }
 
     /** Bounding box of pixels that differ between the closed frame and the face. */
@@ -307,8 +307,8 @@ public final class EyelidManager {
         int minX = 8, minY = 8, maxX = -1, maxY = -1;
         for (int y = 0; y < 8; y++) {
             for (int x = col0; x <= col1; x++) {
-                int frame = image.getPixel(frameX + x, frameY + y);
-                int face = image.getPixel(faceX + x, faceY + y);
+                int frame = image.getPixelRGBA(frameX + x, frameY + y);
+                int face = image.getPixelRGBA(faceX + x, faceY + y);
                 if (frame != face && (frame >>> 24) > 0) {
                     minX = Math.min(minX, x);
                     minY = Math.min(minY, y);
@@ -323,7 +323,7 @@ public final class EyelidManager {
     private static boolean hasOpaqueBox(NativeImage image, int faceX, int faceY, Box box) {
         for (int y = box.y0; y < box.y1; y++) {
             for (int x = box.x0; x < box.x1; x++) {
-                if ((image.getPixel(faceX + x, faceY + y) >>> 24) > 0) return true;
+                if ((image.getPixelRGBA(faceX + x, faceY + y) >>> 24) > 0) return true;
             }
         }
         return false;
@@ -338,7 +338,7 @@ public final class EyelidManager {
         int minX = 8, minY = 8, maxX = -1, maxY = -1;
         for (int y = 1; y <= 6; y++) {
             for (int x = x0; x <= x1; x++) {
-                int color = base.getPixel(FACE_X + x, FACE_Y + y);
+                int color = base.getPixelRGBA(FACE_X + x, FACE_Y + y);
                 if ((color >>> 24) == 0) continue;
                 boolean match = false;
                 for (int candidate : palette) {
@@ -387,7 +387,7 @@ public final class EyelidManager {
             texture.upload();
         }
         if (built == null || built.model() != model) {
-            PlayerSkin original = mc.player != null ? mc.player.getSkin() : null;
+            PlayerSkin original = mc.player != null ? PreviewSkinManager.realSkin(mc.player) : null;
             // Keep missing cape/elytra missing instead of reusing the body texture, which
             // rendered the player's own skin on their back. A demo cape still wins.
             ResourceLocation cape = PreviewSkinManager.effectiveCape();
@@ -419,7 +419,7 @@ public final class EyelidManager {
         NativeImage out = new NativeImage(NativeImage.Format.RGBA, width, height, true);
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
-                out.setPixel(x, y, base.getPixel(x, y));
+                out.setPixelRGBA(x, y, base.getPixelRGBA(x, y));
             }
         }
         if (format == Format.SKINSPICE) {
@@ -445,8 +445,8 @@ public final class EyelidManager {
             Math.round((1.0F - open) * box.height())));
         for (int row = 0; row < cover; row++) {
             for (int x = box.x0; x < box.x1; x++) {
-                int color = out.getPixel(frameX + x, frameY + box.y0 + row);
-                out.setPixel(faceX + x, faceY + box.y0 + row, color);
+                int color = out.getPixelRGBA(frameX + x, frameY + box.y0 + row);
+                out.setPixelRGBA(faceX + x, faceY + box.y0 + row, color);
             }
         }
     }
@@ -458,7 +458,7 @@ public final class EyelidManager {
             Math.round((1.0F - open) * box.height())));
         for (int row = 0; row < cover; row++) {
             for (int x = box.x0; x < box.x1; x++) {
-                out.setPixel(faceX + x, faceY + box.y0 + row, lidColor);
+                out.setPixelRGBA(faceX + x, faceY + box.y0 + row, lidColor);
             }
         }
     }

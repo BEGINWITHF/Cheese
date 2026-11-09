@@ -1,6 +1,7 @@
 package com.example.playerpose.mixin;
 
 import com.example.playerpose.PlayerPoseClient;
+import com.example.playerpose.compat.PoseCubeAccess;
 import com.example.playerpose.pose.BoneMath;
 import com.example.playerpose.pose.JointBend;
 import com.example.playerpose.pose.LayerBends;
@@ -14,11 +15,9 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.HumanoidArmorModel;
 import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.model.geom.ModelPart;
-import net.minecraft.client.model.PlayerCapeModel;
 import net.minecraft.client.model.PlayerModel;
-import net.minecraft.client.renderer.entity.state.PlayerRenderState;
-import net.minecraft.client.renderer.entity.state.HumanoidRenderState;
-import org.joml.Vector3f;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -30,7 +29,7 @@ import java.util.Map;
 import java.util.WeakHashMap;
 
 /**
- * Mixin for HumanoidModel (MC 1.21.11).
+ * Mixin for HumanoidModel (MC 1.21.1).
  *
  * <p>PoseLimbSplitMixin turns each limb into twelve one-unit slices under an empty
  * limb pivot, plus an empty forearm/shin marker at the elbow/knee centre. This mixin
@@ -62,8 +61,8 @@ public abstract class PoseModelMixin implements PoseModelAccess {
         {0.0F, 6.0F, 0.0F}    // rightShin marker
     };
 
-    /** Original slice vertices, so every frame can deform from the rest shape. */
-    private static final Map<ModelPart.Cube, ModelPart.Polygon[]> REST_POLYGONS =
+    /** Original slice geometry, so every frame can deform from the rest shape. */
+    private static final Map<ModelPart.Cube, Object> REST_POLYGONS =
         new WeakHashMap<>();
 
     /** Diagnostic: log each leg pivot once if an animation mod moved it. */
@@ -77,38 +76,39 @@ public abstract class PoseModelMixin implements PoseModelAccess {
     @Shadow public ModelPart rightLeg;
 
     @Inject(
-        method = "setupAnim(Lnet/minecraft/client/renderer/entity/state/HumanoidRenderState;)V",
+        method = "setupAnim(Lnet/minecraft/world/entity/LivingEntity;FFFFF)V",
         at = @At("TAIL")
     )
-    private void playerpose$applyPose(HumanoidRenderState state, CallbackInfo ci) {
-        playerpose$applyPoseInternal(state);
+    private void playerpose$applyPose(LivingEntity entity, float limbSwing, float limbSwingAmount,
+                                      float ageInTicks, float netHeadYaw, float headPitch,
+                                      CallbackInfo ci) {
+        playerpose$applyPoseInternal(entity);
     }
 
     @Override
-    public void playerpose$applyPoseAgain(HumanoidRenderState state) {
-        playerpose$applyPoseInternal(state);
+    public void playerpose$applyPoseAgain(LivingEntity entity) {
+        playerpose$applyPoseInternal(entity);
     }
 
-    private void playerpose$applyPoseInternal(HumanoidRenderState state) {
+    private void playerpose$applyPoseInternal(LivingEntity entity) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
-        if (!(state instanceof PlayerRenderState avatar)) return;
-        boolean local = avatar.id == mc.player.getId();
+        if (!(entity instanceof Player avatar)) return;
+        boolean local = avatar.getId() == mc.player.getId();
 
-        // The armor layers are HumanoidArmorModels in 1.21.8; the cape is a
-        // HumanoidModel too. Only the split skin model owns the joint pivots, the
-        // eyelid quads and the per-frame layer-bend table; armor and the cape still
-        // receive the pose and the armor's sliced limbs are bent, but they must not
-        // wipe what the body model registered or publish pivots of their own.
-        boolean playerModel = ((Object) this instanceof PlayerModel
-            || (Object) this instanceof HumanoidArmorModel)
-            && !((Object) this instanceof PlayerCapeModel);
+        // The armor layers are HumanoidArmorModels in 1.21.1; the cape is part of
+        // PlayerModel. Only the split skin model owns the joint pivots, the eyelid
+        // quads and the per-frame layer-bend table; armor and the cape still receive
+        // the pose and the armor's sliced limbs are bent, but they must not wipe what
+        // the body model registered or publish pivots of their own.
+        boolean playerModel = (Object) this instanceof PlayerModel
+            || (Object) this instanceof HumanoidArmorModel;
         boolean bodyModel = playerModel && child(head, "playerpose_left_eyelid") != null;
 
         if (bodyModel && local) LayerBends.clear();
         if (playerModel) applyEyelids(local && PlayerPoseClient.isPoseEditorOpen());
 
-        Pose pose = PlayerPoseClient.resolvePoseForEntity(mc, avatar.id);
+        Pose pose = PlayerPoseClient.resolvePoseForEntity(mc, avatar.getId());
         if (pose == null || pose.getBones() == null || pose.getBones().isEmpty()) {
             if (playerModel) {
                 resetDeform();
@@ -207,8 +207,8 @@ public abstract class PoseModelMixin implements PoseModelAccess {
         if (joint == null) return;
         var jointPose = joint.getInitialPose();
         if (jointPose == null) return;
-        float centerX = jointPose.x();
-        float seam = jointPose.y();
+        float centerX = jointPose.x;
+        float seam = jointPose.y;
 
         float rx = 0.0F, ry = 0.0F, rz = 0.0F;
         float tx = 0.0F, ty = 0.0F, tz = 0.0F;
@@ -279,7 +279,7 @@ public abstract class PoseModelMixin implements PoseModelAccess {
         float[] bounds = limbBounds(part);
         if (bounds == null) return;
         var partPose = part.getInitialPose();
-        float yOffset = partPose == null ? 0.0F : partPose.y();
+        float yOffset = partPose == null ? 0.0F : partPose.y;
         float seam = (bounds[2] + bounds[3]) / 2.0F + yOffset;
         JointBend jointBend = JointBend.ofSymmetric(rx, ry, rz,
             PoseLimbs.JOINT_BEND_HALF * 2.0);
@@ -292,14 +292,15 @@ public abstract class PoseModelMixin implements PoseModelAccess {
         float minY = Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
         List<ModelPart.Cube> cubes = ((ModelPartAccessor) (Object) part).playerpose$cubes();
         for (ModelPart.Cube cube : cubes) {
-            ModelPart.Polygon[] rest = REST_POLYGONS.computeIfAbsent(cube,
-                c -> c.polygons.clone());
-            for (ModelPart.Polygon polygon : rest) {
-                for (ModelPart.Vertex vertex : polygon.vertices()) {
-                    minX = Math.min(minX, vertex.pos().x);
-                    maxX = Math.max(maxX, vertex.pos().x);
-                    minY = Math.min(minY, vertex.pos().y);
-                    maxY = Math.max(maxY, vertex.pos().y);
+            PoseCubeAccess access = PoseCubeAccess.of(cube);
+            REST_POLYGONS.computeIfAbsent(cube, c -> access.playerpose$snapshot());
+            for (int p = 0; p < access.playerpose$polygonCount(); p++) {
+                float[] data = access.playerpose$vertices(p);
+                for (int v = 0; v + 4 < data.length; v += 5) {
+                    minX = Math.min(minX, data[v]);
+                    maxX = Math.max(maxX, data[v]);
+                    minY = Math.min(minY, data[v + 1]);
+                    maxY = Math.max(maxY, data[v + 1]);
                 }
             }
         }
@@ -313,23 +314,28 @@ public abstract class PoseModelMixin implements PoseModelAccess {
                                     JointBend hipBend, JointBend jointBend) {
         var slicePose = slice.getInitialPose();
         if (slicePose == null) return;
-        float yOffset = slicePose.y();
+        float yOffset = slicePose.y;
 
         List<ModelPart.Cube> cubes = ((ModelPartAccessor) (Object) slice).playerpose$cubes();
         for (ModelPart.Cube cube : cubes) {
-            ModelPart.Polygon[] rest = REST_POLYGONS.computeIfAbsent(cube,
-                c -> c.polygons.clone());
-            for (int p = 0; p < rest.length; p++) {
-                ModelPart.Polygon polygon = rest[p];
-                ModelPart.Vertex[] old = polygon.vertices();
-                ModelPart.Vertex[] out = new ModelPart.Vertex[old.length];
+            PoseCubeAccess access = PoseCubeAccess.of(cube);
+            Object rest = REST_POLYGONS.computeIfAbsent(cube, c -> access.playerpose$snapshot());
+            int polygons = ((Object[]) rest).length;
+            for (int p = 0; p < polygons; p++) {
+                float[] old = access.playerpose$restVertices(rest, p);
+                float[] normal = access.playerpose$restNormal(rest, p);
+                float[] out = new float[old.length];
                 float faceWeight = 0.0F;
                 float faceY = 0.0F;
                 float jointStart = seam - PoseLimbs.JOINT_BEND_HALF;
+                int vertexCount = old.length / 5;
 
-                for (int v = 0; v < old.length; v++) {
-                    ModelPart.Vertex vertex = old[v];
-                    float y = yOffset + vertex.pos().y;
+                for (int v = 0; v < vertexCount; v++) {
+                    int base = v * 5;
+                    float vx = old[base];
+                    float vy = old[base + 1];
+                    float vz = old[base + 2];
+                    float y = yOffset + vy;
                     float weight = bendWeight(y, seam);
                     double jointWeight = jointBend == null ? 0.0
                         : jointBend.weightAt(y - jointStart);
@@ -340,11 +346,11 @@ public abstract class PoseModelMixin implements PoseModelAccess {
                     if (jointBend != null) {
                         // Symmetric band straddling the joint: one or two pixels on
                         // each side share the bend, so the inner side cannot fold.
-                        r = jointBend.apply(vertex.pos().x - centerX,
-                            y - jointStart, vertex.pos().z);
+                        r = jointBend.apply(vx - centerX,
+                            y - jointStart, vz);
                     } else {
-                        r = BoneMath.rotateZYX(vertex.pos().x - centerX, y - seam,
-                            vertex.pos().z, rx * weight, ry * weight, rz * weight);
+                        r = BoneMath.rotateZYX(vx - centerX, y - seam,
+                            vz, rx * weight, ry * weight, rz * weight);
                     }
                     float origin = jointBend != null ? jointStart : seam;
                     float w = jointBend != null ? (float) jointWeight : weight;
@@ -363,25 +369,29 @@ public abstract class PoseModelMixin implements PoseModelAccess {
                         ny = (float) (hq[1] - yOffset);
                         nz = (float) hq[2];
                     }
-                    out[v] = new ModelPart.Vertex(nx, ny, nz, vertex.u(), vertex.v());
+                    out[base] = nx;
+                    out[base + 1] = ny;
+                    out[base + 2] = nz;
+                    out[base + 3] = old[base + 3];
+                    out[base + 4] = old[base + 4];
                 }
 
-                faceWeight /= old.length;
-                faceY /= old.length;
+                faceWeight /= vertexCount;
+                faceY /= vertexCount;
                 double[] n;
                 if (jointBend != null) {
-                    n = jointBend.bendNormal(faceY - jointStart, polygon.normal().x(),
-                        polygon.normal().y(), polygon.normal().z());
+                    n = jointBend.bendNormal(faceY - jointStart, normal[0],
+                        normal[1], normal[2]);
                 } else {
-                    n = BoneMath.rotateZYX(polygon.normal().x(), polygon.normal().y(),
-                        polygon.normal().z(), rx * faceWeight, ry * faceWeight, rz * faceWeight);
+                    n = BoneMath.rotateZYX(normal[0], normal[1],
+                        normal[2], rx * faceWeight, ry * faceWeight, rz * faceWeight);
                 }
                 if (hipBend != null) {
                     double[] hn = hipBend.bendNormal(faceY, n[0], n[1], n[2]);
                     n = hipBend.counterRotation(hn[0], hn[1], hn[2]);
                 }
-                cube.polygons[p] = new ModelPart.Polygon(out,
-                    new Vector3f((float) n[0], (float) n[1], (float) n[2]));
+                access.playerpose$setPolygon(p, out,
+                    (float) n[0], (float) n[1], (float) n[2]);
             }
         }
     }
@@ -395,10 +405,8 @@ public abstract class PoseModelMixin implements PoseModelAccess {
     }
 
     private static void resetDeform() {
-        for (Map.Entry<ModelPart.Cube, ModelPart.Polygon[]> entry : REST_POLYGONS.entrySet()) {
-            ModelPart.Cube cube = entry.getKey();
-            ModelPart.Polygon[] rest = entry.getValue();
-            for (int i = 0; i < rest.length; i++) cube.polygons[i] = rest[i];
+        for (Map.Entry<ModelPart.Cube, Object> entry : REST_POLYGONS.entrySet()) {
+            PoseCubeAccess.of(entry.getKey()).playerpose$restore(entry.getValue());
         }
     }
 
@@ -420,7 +428,7 @@ public abstract class PoseModelMixin implements PoseModelAccess {
     private static float[] restFor(ModelPart part, int index) {
         if (part != null) {
             var rest = part.getInitialPose();
-            if (rest != null) return new float[] {rest.x(), rest.y(), rest.z()};
+            if (rest != null) return new float[] {rest.x, rest.y, rest.z};
         }
         return REST[index < 0 ? 0 : index];
     }

@@ -13,11 +13,12 @@
     "client": ["com.example.playerpose.PlayerPoseClient"]
   },
   "mixins": [
-    "player-pose.mixins.json"
+    "player-pose.mixins.json",
+    "player-pose-geom.mixins.json"
   ],
   "depends": {
     "fabricloader": ">=0.20.1",
-    "minecraft": ">=1.21.2 <1.21.4",
+    "minecraft": ">=1.21 <1.21.2",
     "java": ">=21",
     "fabric-api": "*"
   }

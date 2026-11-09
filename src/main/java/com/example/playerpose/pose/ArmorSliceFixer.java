@@ -1,9 +1,9 @@
 package com.example.playerpose.pose;
 
+import com.example.playerpose.compat.PoseCubeAccess;
 import com.example.playerpose.mixin.ModelPartAccessor;
 import net.minecraft.client.model.geom.ModelPart;
 
-import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -58,15 +58,15 @@ public final class ArmorSliceFixer {
     /** Move every +Y (far end) face vertex back by dv rows of the 64x32 armor texture. */
     private static void shiftEndFace(ModelPart part, float dv) {
         for (ModelPart.Cube cube : cubes(part)) {
-            for (int i = 0; i < cube.polygons.length; i++) {
-                ModelPart.Polygon polygon = cube.polygons[i];
-                if (polygon.normal().y() < 0.5F) continue; // +Y = hand/foot end
-                ModelPart.Vertex[] old = polygon.vertices();
-                ModelPart.Vertex[] fixed = new ModelPart.Vertex[old.length];
-                for (int j = 0; j < old.length; j++) {
-                    fixed[j] = old[j].remap(old[j].u(), old[j].v() + dv);
+            PoseCubeAccess access = PoseCubeAccess.of(cube);
+            for (int i = 0; i < access.playerpose$polygonCount(); i++) {
+                float[] normal = access.playerpose$normal(i);
+                if (normal[1] < 0.5F) continue; // +Y = hand/foot end
+                float[] data = access.playerpose$vertices(i);
+                for (int j = 0; j + 4 < data.length; j += 5) {
+                    data[j + 4] += dv;
                 }
-                cube.polygons[i] = new ModelPart.Polygon(fixed, polygon.normal());
+                access.playerpose$setPolygon(i, data, normal[0], normal[1], normal[2]);
             }
         }
     }
@@ -74,14 +74,16 @@ public final class ArmorSliceFixer {
     /** Hide one horizontal cap by collapsing its vertices to a point. */
     private static void removeHorizontalFace(ModelPart part, float normalY) {
         for (ModelPart.Cube cube : cubes(part)) {
-            for (int i = 0; i < cube.polygons.length; i++) {
-                ModelPart.Polygon polygon = cube.polygons[i];
-                if (Math.abs(polygon.normal().y() - normalY) > 0.5F) continue;
-                ModelPart.Vertex[] old = polygon.vertices();
-                if (old.length == 0) continue;
-                ModelPart.Vertex[] degenerate = new ModelPart.Vertex[old.length];
-                Arrays.fill(degenerate, old[0]);
-                cube.polygons[i] = new ModelPart.Polygon(degenerate, polygon.normal());
+            PoseCubeAccess access = PoseCubeAccess.of(cube);
+            for (int i = 0; i < access.playerpose$polygonCount(); i++) {
+                float[] normal = access.playerpose$normal(i);
+                if (Math.abs(normal[1] - normalY) > 0.5F) continue;
+                float[] data = access.playerpose$vertices(i);
+                if (data.length < 5) continue;
+                for (int j = 5; j + 4 < data.length; j += 5) {
+                    System.arraycopy(data, 0, data, j, 5);
+                }
+                access.playerpose$setPolygon(i, data, normal[0], normal[1], normal[2]);
             }
         }
     }
@@ -89,22 +91,21 @@ public final class ArmorSliceFixer {
     /** Put vertices past the slice boundary onto the boundary plane. */
     private static void clampSeam(ModelPart part, float seam, boolean below) {
         for (ModelPart.Cube cube : cubes(part)) {
-            for (int i = 0; i < cube.polygons.length; i++) {
-                ModelPart.Polygon polygon = cube.polygons[i];
-                ModelPart.Vertex[] old = polygon.vertices();
-                ModelPart.Vertex[] fixed = new ModelPart.Vertex[old.length];
+            PoseCubeAccess access = PoseCubeAccess.of(cube);
+            for (int i = 0; i < access.playerpose$polygonCount(); i++) {
+                float[] data = access.playerpose$vertices(i);
                 boolean changed = false;
-                for (int j = 0; j < old.length; j++) {
-                    ModelPart.Vertex v = old[j];
-                    float y = v.pos().y;
+                for (int j = 0; j + 4 < data.length; j += 5) {
+                    float y = data[j + 1];
                     if (below ? y < seam : y > seam) {
-                        y = seam;
+                        data[j + 1] = seam;
                         changed = true;
                     }
-                    fixed[j] = y == v.pos().y ? v
-                        : new ModelPart.Vertex(v.pos().x, y, v.pos().z, v.u(), v.v());
                 }
-                if (changed) cube.polygons[i] = new ModelPart.Polygon(fixed, polygon.normal());
+                if (changed) {
+                    float[] normal = access.playerpose$normal(i);
+                    access.playerpose$setPolygon(i, data, normal[0], normal[1], normal[2]);
+                }
             }
         }
     }

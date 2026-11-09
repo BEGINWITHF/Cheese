@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.mojang.blaze3d.platform.NativeImage;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.renderer.texture.AbstractTexture;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.client.resources.PlayerSkin;
@@ -31,10 +32,9 @@ import java.util.function.Consumer;
 /**
  * Editor-only skin preview.
  *
- * <p>The editor renders a fresh {@code AvatarRenderState} every frame. This class keeps a
- * preview texture and a matching {@link PlayerSkin}, and the editor swaps only that
- * render state's skin. The local player's real skin, the entity, and anything sent to the
- * server are untouched.</p>
+ * <p>The editor renders the live local player every frame and this class provides the
+ * preview skin for it. The local player's real skin, the entity data, and anything sent
+ * to the server are untouched.</p>
  */
 public final class PreviewSkinManager {
 
@@ -98,6 +98,8 @@ public final class PreviewSkinManager {
     private static boolean demoCape;
     /** A player preview owns the cape/elytra slot: the local ones must not leak in. */
     private static boolean fetchedGear;
+    /** Guards the preview override while this class reads the player's real skin. */
+    private static boolean readingOriginal;
     private static PlayerSkin.Model model = PlayerSkin.Model.WIDE;
     private static int counter;
 
@@ -105,6 +107,27 @@ public final class PreviewSkinManager {
 
     public static PlayerSkin skin() {
         return active ? skin : null;
+    }
+
+    /**
+     * Preview skin for the local player, or null to use the real one. Called from the
+     * player skin mixin; 1.21.3 instead replaced the skin on a per-frame render state.
+     */
+    public static PlayerSkin previewSkin(AbstractClientPlayer player) {
+        if (!active || skin == null || readingOriginal) return null;
+        return player == Minecraft.getInstance().player ? skin : null;
+    }
+
+    /** The player's real skin, ignoring the preview override. */
+    public static PlayerSkin realSkin(AbstractClientPlayer player) {
+        if (player == null) return null;
+        boolean previous = readingOriginal;
+        readingOriginal = true;
+        try {
+            return player.getSkin();
+        } finally {
+            readingOriginal = previous;
+        }
     }
 
     /** Pixels of the active preview body texture, for the panel thumbnail. */
@@ -138,8 +161,9 @@ public final class PreviewSkinManager {
         // player's cape must not leak onto their back.
         if (fetchedGear) return fetchedCapeTexture;
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player != null && mc.player.getSkin() != null) {
-            return mc.player.getSkin().capeTexture();
+        PlayerSkin original = realSkin(mc.player);
+        if (original != null) {
+            return original.capeTexture();
         }
         return cape;
     }
@@ -307,7 +331,7 @@ public final class PreviewSkinManager {
     /** Rebuild the preview PlayerSkin from whatever body/cape are currently active. */
     private static void rebuildSkin() {
         Minecraft mc = Minecraft.getInstance();
-        PlayerSkin original = mc.player != null ? mc.player.getSkin() : null;
+        PlayerSkin original = realSkin(mc.player);
         if (bodyTexture == null && original != null) {
             // No preview body: the model must match the player's real skin.
             model = original.model();
@@ -549,7 +573,7 @@ public final class PreviewSkinManager {
             source.getWidth(), source.getHeight(), true);
         for (int y = 0; y < source.getHeight(); y++) {
             for (int x = 0; x < source.getWidth(); x++) {
-                copy.setPixel(x, y, source.getPixel(x, y));
+                copy.setPixelRGBA(x, y, source.getPixelRGBA(x, y));
             }
         }
         return modernize(copy);
@@ -563,7 +587,7 @@ public final class PreviewSkinManager {
     private static NativeImage currentSkinImage() {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return null;
-        PlayerSkin skin = mc.player.getSkin();
+        PlayerSkin skin = realSkin(mc.player);
         if (skin == null || skin.texture() == null) return null;
         ResourceLocation id = skin.texture();
         if (id == null) return null;
@@ -669,7 +693,7 @@ public final class PreviewSkinManager {
             fail("No player to preview", feedback);
             return;
         }
-        PlayerSkin original = mc.player.getSkin();
+        PlayerSkin original = realSkin(mc.player);
         if (original == null) {
             image.close();
             fail("No player skin available", feedback);
@@ -734,12 +758,12 @@ public final class PreviewSkinManager {
         NativeImage out = new NativeImage(NativeImage.Format.RGBA, 64, 64, true);
         for (int y = 0; y < 32; y++) {
             for (int x = 0; x < 64; x++) {
-                out.setPixel(x, y, source.getPixel(x, y));
+                out.setPixelRGBA(x, y, source.getPixelRGBA(x, y));
             }
         }
         for (int y = 0; y < 16; y++) {
             for (int x = 32; x < 64; x++) {
-                out.setPixel(x, y, 0);
+                out.setPixelRGBA(x, y, 0);
             }
         }
         copyRegion(source, out, 40, 16, 32, 48); // right arm -> left arm
@@ -751,7 +775,7 @@ public final class PreviewSkinManager {
                                    int sx, int sy, int dx, int dy) {
         for (int y = 0; y < 16; y++) {
             for (int x = 0; x < 16; x++) {
-                out.setPixel(dx + x, dy + y, source.getPixel(sx + x, sy + y));
+                out.setPixelRGBA(dx + x, dy + y, source.getPixelRGBA(sx + x, sy + y));
             }
         }
     }

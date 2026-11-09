@@ -1,6 +1,6 @@
 package com.example.playerpose.pose;
 
-import net.minecraft.client.renderer.entity.state.HumanoidRenderState;
+import net.minecraft.world.entity.LivingEntity;
 
 /**
  * Lets the renderer mixin re-apply the pose after animation mods (EMF / Fresh
@@ -8,5 +8,5 @@ import net.minecraft.client.renderer.entity.state.HumanoidRenderState;
  */
 public interface PoseModelAccess {
 
-    void playerpose$applyPoseAgain(HumanoidRenderState state);
+    void playerpose$applyPoseAgain(LivingEntity entity);
 }

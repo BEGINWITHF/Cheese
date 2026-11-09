@@ -1,30 +1,26 @@
 package com.example.playerpose.compat;
 
-import com.mojang.blaze3d.platform.Lighting;
-import com.mojang.blaze3d.vertex.PoseStack;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.renderer.MultiBufferSource;
-import net.minecraft.client.renderer.entity.EntityRenderer;
-import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
-import net.minecraft.client.renderer.entity.state.EntityRenderState;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
+import net.minecraft.world.entity.LivingEntity;
 import org.joml.Quaternionf;
 import org.joml.Quaternionfc;
+import org.joml.Vector3f;
 import org.joml.Vector3fc;
 
 import java.util.List;
 
 /**
- * Small adapter that gives 1.21.11's {@link GuiGraphics} the 26.3-era drawing names
+ * Small adapter that gives {@link GuiGraphics} the 26.3-era drawing names
  * the editor code was written against (text / centeredText / entity), so the port
  * only has to change imports instead of every draw call.
  *
- * <p>The 26.3 text helpers default to a text shadow, which is exactly what
+ * <p>The text helpers default to a text shadow, which is exactly what
  * {@link GuiGraphics#drawString(Font, Component, int, int, int)} does. Entity previews
- * use the same deferred GUI render state as the inventory player preview.</p>
+ * use the same rendering path as the inventory player preview.</p>
  */
 public final class GuiGraphicsExtractor {
 
@@ -111,40 +107,18 @@ public final class GuiGraphicsExtractor {
     // ---- entity preview --------------------------------------------------
 
     /**
-     * Renders an entity render state inside the GUI. 1.21.3 has no deferred
-     * {@code submitEntityRenderState}, so this mirrors
-     * {@code InventoryScreen#renderEntityInInventory} and invokes the renderer
-     * immediately through the GUI's special-render buffer.
+     * Renders a live entity inside the GUI. 1.21.1 has no render-state pipeline, so
+     * this mirrors {@code InventoryScreen#renderEntityInInventory}, which renders the
+     * entity immediately through the vanilla preview path.
      */
-    public void entity(EntityRenderState state, EntityRenderer<?, ?> renderer, float scale,
+    public void entity(LivingEntity entity, float scale,
                        Vector3fc offset, Quaternionfc rotation, Quaternionfc pitchRotation,
                        int x0, int y0, int x1, int y1) {
-        PoseStack pose = delegate.pose();
-        pose.pushPose();
-        pose.translate((x0 + x1) / 2.0D, (y0 + y1) / 2.0D, 50.0D);
-        pose.scale(scale, scale, -scale);
-        pose.translate(offset.x(), offset.y(), offset.z());
-        pose.mulPose(new Quaternionf(rotation));
-        delegate.flush();
-
-        Lighting.setupForEntityInInventory();
-        EntityRenderDispatcher dispatcher = Minecraft.getInstance().getEntityRenderDispatcher();
-        if (pitchRotation != null) {
-            dispatcher.overrideCameraOrientation(
-                new Quaternionf(pitchRotation).conjugate().rotateY((float) Math.PI));
-        }
-        dispatcher.setRenderShadow(false);
-        delegate.drawSpecial(buffers -> renderState(renderer, state, pose, buffers));
-        delegate.flush();
-        dispatcher.setRenderShadow(true);
-        pose.popPose();
-        Lighting.setupFor3DItems();
-    }
-
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private static void renderState(EntityRenderer renderer, EntityRenderState state,
-                                    PoseStack pose, MultiBufferSource buffers) {
-        renderer.render(state, pose, buffers, 15728880);
+        Quaternionf camera = pitchRotation == null ? null
+            : new Quaternionf(pitchRotation).conjugate().rotateY((float) Math.PI);
+        InventoryScreen.renderEntityInInventory(delegate,
+            (x0 + x1) / 2.0F, (y0 + y1) / 2.0F, scale,
+            new Vector3f(offset), new Quaternionf(rotation), camera, entity);
     }
 
     // ---- tooltip ---------------------------------------------------------
