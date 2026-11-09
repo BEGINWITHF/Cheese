@@ -1,7 +1,10 @@
 package com.example.playerpose.mixin;
 
+import com.example.playerpose.pose.ArmorSliceFixer;
 import com.example.playerpose.pose.PoseLimbs;
 import com.example.playerpose.pose.PoseLog;
+import net.minecraft.client.model.HumanoidArmorModel;
+import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.geom.PartPose;
 import net.minecraft.client.model.geom.builders.CubeDefinition;
 import net.minecraft.client.model.geom.builders.CubeDeformation;
@@ -9,12 +12,11 @@ import net.minecraft.client.model.geom.builders.CubeListBuilder;
 import net.minecraft.client.model.geom.builders.MeshDefinition;
 import net.minecraft.client.model.geom.builders.PartDefinition;
 import net.minecraft.client.model.geom.builders.UVPair;
-import net.minecraft.client.model.player.PlayerModel;
-import net.minecraft.client.renderer.entity.ArmorModelSet;
-import org.joml.Vector3fc;
+import org.joml.Vector3f;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.List;
@@ -23,45 +25,47 @@ import java.util.List;
  * Gives the player's armor the same twelve-slice limbs as the skin, so a chestplate or
  * leggings bends with the elbow/knee instead of staying a straight rigid box.
  *
- * <p>Armor is a separate model baked from its own meshes, but the limb boxes come from
- * the same humanoid mesh and are the same twelve units tall, and the armor texture uses
- * the same body-part layout as the skin. Slicing therefore only needs the original cube
- * definition: one texOff snippet per unit row, box narrowed to one unit tall, pivot kept
- * from the original part. Everything else (bending, seam caps, end-face UVs) is the same
- * code path the skin limbs already use in {@link PoseLimbSplitMixin} and
- * {@link PoseModelMixin}.</p>
+ * <p>In 1.21.8 humanoid armor is baked from {@link HumanoidArmorModel#createBodyLayer}
+ * rather than from the player model, so this hooks that shared mesh builder. The limb
+ * boxes are the same twelve-units-tall humanoid boxes and the armor texture uses the
+ * same body-part layout as the skin, so slicing only needs the original cube
+ * definition: one texOff snippet per unit row, the box narrowed to one unit tall and
+ * the pivot kept from the original part. Everything else (bending, seam caps, end-face
+ * UVs) is the same code path the skin limbs already use in
+ * {@link PoseLimbSplitMixin} and {@link PoseModelMixin}.</p>
  */
-@Mixin(PlayerModel.class)
+@Mixin(HumanoidArmorModel.class)
 public abstract class PoseArmorSplitMixin {
 
     @Inject(
-        method = "createArmorMeshSet(Lnet/minecraft/client/model/geom/builders/CubeDeformation;"
-            + "Lnet/minecraft/client/model/geom/builders/CubeDeformation;)"
-            + "Lnet/minecraft/client/renderer/entity/ArmorModelSet;",
+        method = "createBodyLayer(Lnet/minecraft/client/model/geom/builders/CubeDeformation;)"
+            + "Lnet/minecraft/client/model/geom/builders/MeshDefinition;",
         at = @At("RETURN")
     )
-    private static void playerpose$sliceArmorLimbs(CubeDeformation inner, CubeDeformation outer,
-                                                   CallbackInfoReturnable<ArmorModelSet<MeshDefinition>> cir) {
-        ArmorModelSet<MeshDefinition> set = cir.getReturnValue();
-        if (set == null) return;
+    private static void playerpose$sliceArmorLimbs(CubeDeformation deformation,
+                                                   CallbackInfoReturnable<MeshDefinition> cir) {
+        MeshDefinition mesh = cir.getReturnValue();
+        if (mesh == null) return;
         try {
-            // The four slots share the same humanoid source mesh; retainExactParts already
-            // removed the parts that slot does not use, so slicing every limb is safe.
-            MeshDefinition[] meshes = {set.head(), set.chest(), set.legs(), set.feet()};
+            PartDefinition root = mesh.getRoot();
             int sliced = 0;
-            for (MeshDefinition mesh : meshes) {
-                if (mesh == null) continue;
-                PartDefinition root = mesh.getRoot();
-                sliced += slice(root, "left_arm", "left_forearm");
-                sliced += slice(root, "right_arm", "right_forearm");
-                sliced += slice(root, "left_leg", "left_shin");
-                sliced += slice(root, "right_leg", "right_shin");
+            sliced += slice(root, "left_arm", "left_forearm");
+            sliced += slice(root, "right_arm", "right_forearm");
+            sliced += slice(root, "left_leg", "left_shin");
+            sliced += slice(root, "right_leg", "right_shin");
+            if (sliced > 0) {
+                PoseLog.info("armor: built %d-slice bendable armor limbs (%d part(s))",
+                    PoseLimbs.SLICES, sliced);
             }
-            PoseLog.info("armor: built %d-slice bendable armor limbs (%d part(s))",
-                PoseLimbs.SLICES, sliced);
         } catch (Throwable t) {
             PoseLog.warn("armor: sliced armor build failed, keeping the rigid armor model (%s)", t);
         }
+    }
+
+    /** Post-bake cleanup: trim seam caps/inflation and fix the hand/foot end faces. */
+    @Inject(method = "<init>(Lnet/minecraft/client/model/geom/ModelPart;)V", at = @At("TAIL"))
+    private void playerpose$fixArmorSlices(ModelPart root, CallbackInfo ci) {
+        ArmorSliceFixer.fix(root);
     }
 
     private static int slice(PartDefinition root, String limbName, String jointName) {
@@ -72,8 +76,8 @@ public abstract class PoseArmorSplitMixin {
         if (cubes == null || cubes.size() != 1) return 0;
 
         CubeDefinitionAccessor cube = (CubeDefinitionAccessor) (Object) cubes.get(0);
-        Vector3fc origin = cube.playerpose$origin();
-        Vector3fc size = cube.playerpose$dimensions();
+        Vector3f origin = cube.playerpose$origin();
+        Vector3f size = cube.playerpose$dimensions();
         if (origin == null || size == null) return 0;
         if (Math.abs(size.y() - PoseLimbs.SLICES) > 1.0E-3F) return 0;
 

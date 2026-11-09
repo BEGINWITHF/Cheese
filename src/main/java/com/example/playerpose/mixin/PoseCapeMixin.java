@@ -6,8 +6,8 @@ import com.example.playerpose.pose.Pose;
 import com.example.playerpose.pose.PoseBone;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.geom.ModelPart;
-import net.minecraft.client.model.player.PlayerCapeModel;
-import net.minecraft.client.renderer.entity.state.AvatarRenderState;
+import net.minecraft.client.model.PlayerCapeModel;
+import net.minecraft.client.renderer.entity.state.PlayerRenderState;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -34,13 +34,13 @@ public abstract class PoseCapeMixin {
     @Shadow private ModelPart cape;
 
     @Inject(
-        method = "setupAnim(Lnet/minecraft/client/renderer/entity/state/AvatarRenderState;)V",
+        method = "setupAnim(Lnet/minecraft/client/renderer/entity/state/PlayerRenderState;)V",
         at = @At("TAIL")
     )
-    private void playerpose$applyCapePose(AvatarRenderState state, CallbackInfo ci) {
+    private void playerpose$applyCapePose(PlayerRenderState state, CallbackInfo ci) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
-        if (state.id != mc.player.getId()) return; // AvatarRenderState#id is the entity id
+        if (state.id != mc.player.getId()) return; // PlayerRenderState#id is the entity id
 
         Pose pose = PlayerPoseClient.resolvePoseForLocalPlayer(mc);
         if (pose != null && pose.getBones() != null) {

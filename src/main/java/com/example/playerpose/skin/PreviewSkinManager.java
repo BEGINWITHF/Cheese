@@ -8,10 +8,8 @@ import com.mojang.blaze3d.platform.NativeImage;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.AbstractTexture;
 import net.minecraft.client.renderer.texture.DynamicTexture;
-import net.minecraft.core.ClientAsset;
-import net.minecraft.resources.Identifier;
-import net.minecraft.world.entity.player.PlayerModelType;
-import net.minecraft.world.entity.player.PlayerSkin;
+import net.minecraft.client.resources.PlayerSkin;
+import net.minecraft.resources.ResourceLocation;
 
 import java.io.IOException;
 import java.net.URI;
@@ -81,26 +79,26 @@ public final class PreviewSkinManager {
     private static volatile boolean demo;
     private static volatile int version;
     private static volatile String status = "";
-    private static Identifier textureId;
+    private static ResourceLocation textureId;
     private static PlayerSkin skin;
     private static NativeImage pixels;
-    private static ClientAsset.Texture cape;
-    private static ClientAsset.Texture elytra;
-    private static ClientAsset.Texture bodyTexture;
-    private static ClientAsset.Texture demoCapeTexture;
-    private static Identifier demoCapeId;
-    private static ClientAsset.Texture chosenCapeTexture;
-    private static Identifier chosenCapeId;
+    private static ResourceLocation cape;
+    private static ResourceLocation elytra;
+    private static ResourceLocation bodyTexture;
+    private static ResourceLocation demoCapeTexture;
+    private static ResourceLocation demoCapeId;
+    private static ResourceLocation chosenCapeTexture;
+    private static ResourceLocation chosenCapeId;
     private static NativeImage chosenCapePixels;
     private static String chosenCapeKey = "";
-    private static ClientAsset.Texture fetchedCapeTexture;
-    private static Identifier fetchedCapeId;
-    private static ClientAsset.Texture fetchedElytraTexture;
-    private static Identifier fetchedElytraId;
+    private static ResourceLocation fetchedCapeTexture;
+    private static ResourceLocation fetchedCapeId;
+    private static ResourceLocation fetchedElytraTexture;
+    private static ResourceLocation fetchedElytraId;
     private static boolean demoCape;
     /** A player preview owns the cape/elytra slot: the local ones must not leak in. */
     private static boolean fetchedGear;
-    private static PlayerModelType model = PlayerModelType.WIDE;
+    private static PlayerSkin.Model model = PlayerSkin.Model.WIDE;
     private static int counter;
 
     private PreviewSkinManager() {}
@@ -133,7 +131,7 @@ public final class PreviewSkinManager {
     }
 
     /** The cape the editor should render: a picked cape, then the demo one, then the real one. */
-    public static ClientAsset.Texture effectiveCape() {
+    public static ResourceLocation effectiveCape() {
         if (chosenCapeTexture != null) return chosenCapeTexture;
         if (demoCapeTexture != null) return demoCapeTexture;
         // A player preview owns the slot: they may have no cape at all, and the local
@@ -141,7 +139,7 @@ public final class PreviewSkinManager {
         if (fetchedGear) return fetchedCapeTexture;
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null && mc.player.getSkin() != null) {
-            return mc.player.getSkin().cape();
+            return mc.player.getSkin().capeTexture();
         }
         return cape;
     }
@@ -160,7 +158,7 @@ public final class PreviewSkinManager {
             return;
         }
         Minecraft mc = Minecraft.getInstance();
-        Identifier resource = Identifier.fromNamespaceAndPath("player-pose",
+        ResourceLocation resource = ResourceLocation.fromNamespaceAndPath("player-pose",
             "textures/cape/demo_cape.png");
         var res = mc.getResourceManager().getResource(resource);
         if (res.isEmpty()) {
@@ -169,12 +167,12 @@ public final class PreviewSkinManager {
         }
         try (var in = res.get().open()) {
             NativeImage image = NativeImage.read(in);
-            Identifier id = Identifier.fromNamespaceAndPath("player-pose",
+            ResourceLocation id = ResourceLocation.fromNamespaceAndPath("player-pose",
                 "preview/cape_" + (counter++));
             DynamicTexture texture = new DynamicTexture(() -> "cheese demo cape", image);
             mc.getTextureManager().register(id, texture);
             demoCapeId = id;
-            demoCapeTexture = new ClientAsset.ResourceTexture(id, id);
+            demoCapeTexture = id;
             demoCape = true;
             rebuildSkin();
             version++;
@@ -211,7 +209,7 @@ public final class PreviewSkinManager {
 
     /** Use a bundled official cape texture for the preview. */
     public static void selectOfficialCape(OfficialCape cape, Consumer<String> feedback) {
-        Identifier id = Identifier.fromNamespaceAndPath("player-pose",
+        ResourceLocation id = ResourceLocation.fromNamespaceAndPath("player-pose",
             "textures/cape/official/" + cape.id() + ".png");
         var resource = Minecraft.getInstance().getResourceManager().getResource(id);
         if (resource.isEmpty()) {
@@ -275,12 +273,12 @@ public final class PreviewSkinManager {
     private static boolean applyCapeImage(NativeImage image, String key) {
         if (image.getWidth() != 64 || image.getHeight() != 32) return false;
         releaseChosenCape();
-        Identifier id = Identifier.fromNamespaceAndPath("player-pose",
+        ResourceLocation id = ResourceLocation.fromNamespaceAndPath("player-pose",
             "preview/cape_" + (counter++));
         DynamicTexture texture = new DynamicTexture(() -> "cheese preview cape", image);
         Minecraft.getInstance().getTextureManager().register(id, texture);
         chosenCapeId = id;
-        chosenCapeTexture = new ClientAsset.ResourceTexture(id, id);
+        chosenCapeTexture = id;
         chosenCapePixels = image;
         chosenCapeKey = key == null ? "" : key;
         clearDemoCape();
@@ -314,14 +312,14 @@ public final class PreviewSkinManager {
             // No preview body: the model must match the player's real skin.
             model = original.model();
         }
-        ClientAsset.Texture body = bodyTexture != null ? bodyTexture
-            : (original != null ? original.body() : null);
+        ResourceLocation body = bodyTexture != null ? bodyTexture
+            : (original != null ? original.texture() : null);
         if (body == null) {
             skin = null;
             return;
         }
-        ClientAsset.Texture capeTex;
-        ClientAsset.Texture elytraTex;
+        ResourceLocation capeTex;
+        ResourceLocation elytraTex;
         if (chosenCapeTexture != null) {
             capeTex = chosenCapeTexture;
             // Vanilla capes also provide the elytra art, so keep that preview consistent.
@@ -332,16 +330,16 @@ public final class PreviewSkinManager {
             // No ELYTRA entry in that profile? Keep the usual elytra texture; passing
             // null would let the cape texture fall through onto the wings.
             elytraTex = fetchedElytraTexture != null ? fetchedElytraTexture
-                : (original != null ? original.elytra() : elytra);
+                : (original != null ? original.elytraTexture() : elytra);
         } else {
             capeTex = demoCapeTexture != null ? demoCapeTexture
-                : (original != null ? original.cape() : cape);
-            elytraTex = original != null ? original.elytra() : elytra;
+                : (original != null ? original.capeTexture() : cape);
+            elytraTex = original != null ? original.elytraTexture() : elytra;
         }
-        skin = PlayerSkin.insecure(body, capeTex, elytraTex, model);
+        skin = new PlayerSkin(body, null, capeTex, elytraTex, model, false);
     }
 
-    public static PlayerModelType model() {
+    public static PlayerSkin.Model model() {
         return model;
     }
 
@@ -400,7 +398,7 @@ public final class PreviewSkinManager {
         }, WORKER);
     }
 
-    private record FetchedSkin(NativeImage image, PlayerModelType type, String displayName,
+    private record FetchedSkin(NativeImage image, PlayerSkin.Model type, String displayName,
                                byte[] capePng, byte[] elytraPng) {}
 
     private static FetchedSkin fetchPlayer(String name) throws IOException, InterruptedException {
@@ -432,12 +430,12 @@ public final class PreviewSkinManager {
         JsonObject skinObject = JsonParser.parseString(decoded).getAsJsonObject()
             .getAsJsonObject("textures").getAsJsonObject("SKIN");
         String url = skinObject.get("url").getAsString();
-        PlayerModelType type = PlayerModelType.WIDE;
+        PlayerSkin.Model type = PlayerSkin.Model.WIDE;
         if (skinObject.has("metadata")
             && skinObject.getAsJsonObject("metadata").has("model")
             && "slim".equalsIgnoreCase(
                 skinObject.getAsJsonObject("metadata").get("model").getAsString())) {
-            type = PlayerModelType.SLIM;
+            type = PlayerSkin.Model.SLIM;
         }
         NativeImage image = NativeImage.read(getBytes(url));
         return new FetchedSkin(image, type, displayName,
@@ -469,17 +467,17 @@ public final class PreviewSkinManager {
     }
 
     /** Register a texture from raw PNG bytes; returns null when the bytes are unusable. */
-    private static ClientAsset.Texture registerFetched(byte[] png, String name,
-                                                       Identifier[] idOut) {
+    private static ResourceLocation registerFetched(byte[] png, String name,
+                                                    ResourceLocation[] idOut) {
         if (png == null || png.length == 0) return null;
         try {
             NativeImage image = NativeImage.read(png);
-            Identifier id = Identifier.fromNamespaceAndPath("player-pose",
+            ResourceLocation id = ResourceLocation.fromNamespaceAndPath("player-pose",
                 "preview/" + name + "_" + (counter++));
             DynamicTexture texture = new DynamicTexture(() -> "cheese preview " + name, image);
             Minecraft.getInstance().getTextureManager().register(id, texture);
             idOut[0] = id;
-            return new ClientAsset.ResourceTexture(id, id);
+            return id;
         } catch (Throwable error) {
             PoseLog.warn("skin preview: %s texture failed (%s)", name, error);
             return null;
@@ -501,7 +499,7 @@ public final class PreviewSkinManager {
     }
 
     /** Load a local 64x64 PNG skin. */
-    public static void loadFromFile(Path path, PlayerModelType type, Consumer<String> feedback) {
+    public static void loadFromFile(Path path, PlayerSkin.Model type, Consumer<String> feedback) {
         if (path == null) {
             feedback.accept("Choose a skin file first");
             return;
@@ -523,14 +521,14 @@ public final class PreviewSkinManager {
     }
 
     /** Rebuild the preview for a different arm model. */
-    public static void setModel(PlayerModelType type, Consumer<String> feedback) {
+    public static void setModel(PlayerSkin.Model type, Consumer<String> feedback) {
         model = type;
         if (skin != null && textureId != null) {
             // Go through rebuildSkin so the player-preview cape/elytra (or the demo cape)
             // survive the model switch; building the skin here used to fall back to the
             // body texture, which put the skin on the player's back.
             rebuildSkin();
-            status = model == PlayerModelType.SLIM
+            status = model == PlayerSkin.Model.SLIM
                 ? "Preview arms: slim" : "Preview arms: classic";
             feedback.accept(status);
         }
@@ -566,8 +564,8 @@ public final class PreviewSkinManager {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return null;
         PlayerSkin skin = mc.player.getSkin();
-        if (skin == null || skin.body() == null) return null;
-        Identifier id = skin.body().texturePath();
+        if (skin == null || skin.texture() == null) return null;
+        ResourceLocation id = skin.texture();
         if (id == null) return null;
         try {
             AbstractTexture texture = mc.getTextureManager().getTexture(id);
@@ -605,11 +603,11 @@ public final class PreviewSkinManager {
     }
 
     /** Load the built-in blink demo skin (supports both skin conventions). */
-    public static void loadBundledDemo(PlayerModelType type, Consumer<String> feedback) {
+    public static void loadBundledDemo(PlayerSkin.Model type, Consumer<String> feedback) {
         Minecraft mc = Minecraft.getInstance();
-        Identifier id = Identifier.fromNamespaceAndPath("player-pose",
+        ResourceLocation id = ResourceLocation.fromNamespaceAndPath("player-pose",
             "textures/skin/blink_demo_"
-                + (type == PlayerModelType.SLIM ? "slim" : "wide") + ".png");
+                + (type == PlayerSkin.Model.SLIM ? "slim" : "wide") + ".png");
         var resource = mc.getResourceManager().getResource(id);
         if (resource.isEmpty()) {
             PoseLog.info("skin preview: bundled demo missing (%s)", id);
@@ -625,17 +623,17 @@ public final class PreviewSkinManager {
         }
     }
 
-    private static void apply(NativeImage image, PlayerModelType type, String label,
+    private static void apply(NativeImage image, PlayerSkin.Model type, String label,
                               Consumer<String> feedback) {
         apply(image, type, label, feedback, false, null, null, false);
     }
 
-    private static void apply(NativeImage image, PlayerModelType type, String label,
+    private static void apply(NativeImage image, PlayerSkin.Model type, String label,
                               Consumer<String> feedback, boolean demoSource) {
         apply(image, type, label, feedback, demoSource, null, null, false);
     }
 
-    private static void apply(NativeImage image, PlayerModelType type, String label,
+    private static void apply(NativeImage image, PlayerSkin.Model type, String label,
                               Consumer<String> feedback, boolean demoSource,
                               byte[] capePng, byte[] elytraPng, boolean fromPlayer) {
         try {
@@ -653,7 +651,7 @@ public final class PreviewSkinManager {
         }
     }
 
-    private static void applyInternal(NativeImage image, PlayerModelType type, String label,
+    private static void applyInternal(NativeImage image, PlayerSkin.Model type, String label,
                                       Consumer<String> feedback, byte[] capePng,
                                       byte[] elytraPng, boolean fromPlayer) {
         if (!active) {
@@ -679,7 +677,7 @@ public final class PreviewSkinManager {
         }
 
         releaseTexture();
-        Identifier id = Identifier.fromNamespaceAndPath("player-pose",
+        ResourceLocation id = ResourceLocation.fromNamespaceAndPath("player-pose",
             "preview/skin_" + (counter++));
         DynamicTexture texture = new DynamicTexture(() -> "cheese preview skin", image);
         mc.getTextureManager().register(id, texture);
@@ -687,15 +685,15 @@ public final class PreviewSkinManager {
         textureId = id;
         model = type;
         pixels = image;
-        cape = original.cape();
-        elytra = original.elytra();
-        bodyTexture = new ClientAsset.ResourceTexture(id, id);
+        cape = original.capeTexture();
+        elytra = original.elytraTexture();
+        bodyTexture = id;
         // The previewed player's own cape/elytra ride along, so the back is not the local
         // player's gear.
-        Identifier[] capeId = new Identifier[1];
+        ResourceLocation[] capeId = new ResourceLocation[1];
         fetchedCapeTexture = registerFetched(capePng, "cape", capeId);
         fetchedCapeId = capeId[0];
-        Identifier[] elytraId = new Identifier[1];
+        ResourceLocation[] elytraId = new ResourceLocation[1];
         fetchedElytraTexture = registerFetched(elytraPng, "elytra", elytraId);
         fetchedElytraId = elytraId[0];
         fetchedGear = fromPlayer;

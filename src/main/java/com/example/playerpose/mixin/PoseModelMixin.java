@@ -11,11 +11,12 @@ import com.example.playerpose.pose.PoseLog;
 import com.example.playerpose.pose.PoseModelAccess;
 import com.example.playerpose.skin.EyelidManager;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.model.HumanoidArmorModel;
 import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.model.geom.ModelPart;
-import net.minecraft.client.model.player.PlayerCapeModel;
-import net.minecraft.client.model.player.PlayerModel;
-import net.minecraft.client.renderer.entity.state.AvatarRenderState;
+import net.minecraft.client.model.PlayerCapeModel;
+import net.minecraft.client.model.PlayerModel;
+import net.minecraft.client.renderer.entity.state.PlayerRenderState;
 import net.minecraft.client.renderer.entity.state.HumanoidRenderState;
 import org.joml.Vector3f;
 import org.spongepowered.asm.mixin.Mixin;
@@ -91,15 +92,16 @@ public abstract class PoseModelMixin implements PoseModelAccess {
     private void playerpose$applyPoseInternal(HumanoidRenderState state) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
-        if (!(state instanceof AvatarRenderState avatar)) return;
+        if (!(state instanceof PlayerRenderState avatar)) return;
         boolean local = avatar.id == mc.player.getId();
 
-        // The cape and armor layers are HumanoidModels too (armor is even baked as a
-        // PlayerModel with the same sliced limbs). Only the split skin model owns the
-        // joint pivots, the eyelid quads and the per-frame layer-bend table; armor and
-        // the cape still receive the pose, but must not wipe what the body model
-        // registered or publish pivots of their own.
-        boolean playerModel = (Object) this instanceof PlayerModel
+        // The armor layers are HumanoidArmorModels in 1.21.8; the cape is a
+        // HumanoidModel too. Only the split skin model owns the joint pivots, the
+        // eyelid quads and the per-frame layer-bend table; armor and the cape still
+        // receive the pose and the armor's sliced limbs are bent, but they must not
+        // wipe what the body model registered or publish pivots of their own.
+        boolean playerModel = ((Object) this instanceof PlayerModel
+            || (Object) this instanceof HumanoidArmorModel)
             && !((Object) this instanceof PlayerCapeModel);
         boolean bodyModel = playerModel && child(head, "playerpose_left_eyelid") != null;
 
@@ -294,10 +296,10 @@ public abstract class PoseModelMixin implements PoseModelAccess {
                 c -> c.polygons.clone());
             for (ModelPart.Polygon polygon : rest) {
                 for (ModelPart.Vertex vertex : polygon.vertices()) {
-                    minX = Math.min(minX, vertex.x());
-                    maxX = Math.max(maxX, vertex.x());
-                    minY = Math.min(minY, vertex.y());
-                    maxY = Math.max(maxY, vertex.y());
+                    minX = Math.min(minX, vertex.pos().x);
+                    maxX = Math.max(maxX, vertex.pos().x);
+                    minY = Math.min(minY, vertex.pos().y);
+                    maxY = Math.max(maxY, vertex.pos().y);
                 }
             }
         }
@@ -327,7 +329,7 @@ public abstract class PoseModelMixin implements PoseModelAccess {
 
                 for (int v = 0; v < old.length; v++) {
                     ModelPart.Vertex vertex = old[v];
-                    float y = yOffset + vertex.y();
+                    float y = yOffset + vertex.pos().y;
                     float weight = bendWeight(y, seam);
                     double jointWeight = jointBend == null ? 0.0
                         : jointBend.weightAt(y - jointStart);
@@ -338,11 +340,11 @@ public abstract class PoseModelMixin implements PoseModelAccess {
                     if (jointBend != null) {
                         // Symmetric band straddling the joint: one or two pixels on
                         // each side share the bend, so the inner side cannot fold.
-                        r = jointBend.apply(vertex.x() - centerX,
-                            y - jointStart, vertex.z());
+                        r = jointBend.apply(vertex.pos().x - centerX,
+                            y - jointStart, vertex.pos().z);
                     } else {
-                        r = BoneMath.rotateZYX(vertex.x() - centerX, y - seam,
-                            vertex.z(), rx * weight, ry * weight, rz * weight);
+                        r = BoneMath.rotateZYX(vertex.pos().x - centerX, y - seam,
+                            vertex.pos().z, rx * weight, ry * weight, rz * weight);
                     }
                     float origin = jointBend != null ? jointStart : seam;
                     float w = jointBend != null ? (float) jointWeight : weight;

@@ -16,17 +16,17 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.input.CharacterEvent;
-import net.minecraft.client.input.KeyEvent;
-import net.minecraft.client.input.MouseButtonEvent;
+import com.example.playerpose.compat.CharacterEvent;
+import com.example.playerpose.compat.KeyEvent;
+import com.example.playerpose.compat.MouseButtonEvent;
 import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.client.renderer.entity.EntityRenderer;
-import net.minecraft.client.renderer.entity.state.AvatarRenderState;
+import net.minecraft.client.renderer.entity.state.PlayerRenderState;
 import net.minecraft.client.renderer.entity.state.EntityRenderState;
 import net.minecraft.client.renderer.entity.state.LivingEntityRenderState;
 import net.minecraft.network.chat.Component;
+import net.minecraft.client.resources.PlayerSkin;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.player.PlayerModelType;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
@@ -141,7 +141,7 @@ public class PoseEditorScreen extends Screen {
     private Button skinPlayerBtn;
     private Button skinFileBtn;
     private int skinModeGroupX0, skinModeGroupY0, skinModeGroupX1, skinModeGroupY1;
-    private PlayerModelType skinModel = PlayerModelType.WIDE;
+    private PlayerSkin.Model skinModel = PlayerSkin.Model.WIDE;
     private String skinStatus = "";
     private Rect skinButtonRect;
     private Rect skinPanelRect;
@@ -483,10 +483,10 @@ public class PoseEditorScreen extends Screen {
             List<LoadTarget> players = new ArrayList<>();
             for (PlayerInfo info : mc.getConnection().getOnlinePlayers()) {
                 if (info == null || info.getProfile() == null
-                    || info.getProfile().id() == null) continue;
-                UUID id = info.getProfile().id();
+                    || info.getProfile().getId() == null) continue;
+                UUID id = info.getProfile().getId();
                 if (id.equals(self)) continue;
-                String name = info.getProfile().name();
+                String name = info.getProfile().getName();
                 if (name == null || name.isBlank()) name = id.toString();
                 players.add(new LoadTarget(LOAD_PLAYER, id, name));
             }
@@ -1073,7 +1073,7 @@ public class PoseEditorScreen extends Screen {
         drawSkinAction(graphics, font, skinLoadRect,
             Component.translatable("playerpose.skin.load"), true, mouseX, mouseY);
         drawSkinAction(graphics, font, skinModelRect,
-            Component.translatable(skinModel == PlayerModelType.SLIM
+            Component.translatable(skinModel == PlayerSkin.Model.SLIM
                 ? "playerpose.skin.armsSlim" : "playerpose.skin.armsClassic"),
             false, mouseX, mouseY);
         drawSkinAction(graphics, font, skinOriginalRect,
@@ -1575,7 +1575,7 @@ public class PoseEditorScreen extends Screen {
     }
 
     private void loadBlinkDemo() {
-        PlayerModelType type = PreviewSkinManager.model();
+        PlayerSkin.Model type = PreviewSkinManager.model();
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null && mc.player.getSkin() != null
             && PreviewSkinManager.pixels() == null) {
@@ -1755,12 +1755,12 @@ public class PoseEditorScreen extends Screen {
     }
 
     private void toggleSkinModel() {
-        skinModel = skinModel == PlayerModelType.SLIM
-            ? PlayerModelType.WIDE : PlayerModelType.SLIM;
+        skinModel = skinModel == PlayerSkin.Model.SLIM
+            ? PlayerSkin.Model.WIDE : PlayerSkin.Model.SLIM;
         if (PreviewSkinManager.skin() != null) {
             PreviewSkinManager.setModel(skinModel, this::onSkinStatus);
         } else {
-            onSkinStatus(Component.translatable(skinModel == PlayerModelType.SLIM
+            onSkinStatus(Component.translatable(skinModel == PlayerSkin.Model.SLIM
                 ? "playerpose.skin.armsSlim" : "playerpose.skin.armsClassic").getString());
         }
     }
@@ -2601,15 +2601,13 @@ public class PoseEditorScreen extends Screen {
         if (renderer == null) return;
 
         EntityRenderState state = renderer.createRenderState(entity, partialTick);
-        if (state instanceof AvatarRenderState avatar) {
+        if (state instanceof PlayerRenderState avatar) {
             var preview = PreviewSkinManager.skin();
             if (preview != null) {
                 // Editor-only: replace the render state's skin, never the player's.
                 avatar.skin = preview;
             }
         }
-        state.shadowPieces.clear();
-        state.outlineColor = 0;
 
         if (state instanceof LivingEntityRenderState living) {
             float scale = living.scale;
@@ -2738,8 +2736,8 @@ public class PoseEditorScreen extends Screen {
         if (mc.getConnection() != null) {
             for (PlayerInfo info : mc.getConnection().getOnlinePlayers()) {
                 if (info != null && info.getProfile() != null
-                    && info.getProfile().id() != null) {
-                    ids.add(info.getProfile().id());
+                    && info.getProfile().getId() != null) {
+                    ids.add(info.getProfile().getId());
                 }
             }
         }
@@ -3102,6 +3100,10 @@ public class PoseEditorScreen extends Screen {
     // ---- input -----------------------------------------------------------
 
     @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        return mouseClicked(new MouseButtonEvent(mouseX, mouseY, button), false);
+    }
+
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         if (sodiumDialogOpen) {
             sodiumDialogLayout();
@@ -3221,9 +3223,9 @@ public class PoseEditorScreen extends Screen {
                     && my < skinInputBox.getY() + skinInputBox.getHeight()) {
                     setFocused(skinInputBox);
                     skinInputBox.setFocused(true);
-                    if (skinInputBox.mouseClicked(event, doubleClick)) return true;
+                    if (skinInputBox.mouseClicked(event.x(), event.y(), event.button())) return true;
                 }
-                return super.mouseClicked(event, doubleClick);
+                return super.mouseClicked(event.x(), event.y(), event.button());
             }
             return true;
         }
@@ -3403,10 +3405,15 @@ public class PoseEditorScreen extends Screen {
                 return true;
             }
         }
-        return super.mouseClicked(event, doubleClick);
+        return super.mouseClicked(event.x(), event.y(), event.button());
     }
 
     @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button,
+                                double dragX, double dragY) {
+        return mouseDragged(new MouseButtonEvent(mouseX, mouseY, button), dragX, dragY);
+    }
+
     public boolean mouseDragged(MouseButtonEvent event, double dragX, double dragY) {
         if (eyesPanelOpen) {
             if (draggingLeftEye) setEyeFromMouse(true, event.x());
@@ -3446,10 +3453,14 @@ public class PoseEditorScreen extends Screen {
             camPitch = wrapDegrees(camPitch - dragY * 0.5);
             return true;
         }
-        return super.mouseDragged(event, dragX, dragY);
+        return super.mouseDragged(event.x(), event.y(), event.button(), dragX, dragY);
     }
 
     @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        return mouseReleased(new MouseButtonEvent(mouseX, mouseY, button));
+    }
+
     public boolean mouseReleased(MouseButtonEvent event) {
         if (eyesPanelOpen) {
             draggingLeftEye = false;
@@ -3470,7 +3481,7 @@ public class PoseEditorScreen extends Screen {
             orbiting = false;
             return true;
         }
-        return super.mouseReleased(event);
+        return super.mouseReleased(event.x(), event.y(), event.button());
     }
 
     @Override
@@ -3504,16 +3515,20 @@ public class PoseEditorScreen extends Screen {
     }
 
     @Override
+    public boolean charTyped(char codePoint, int modifiers) {
+        return charTyped(new CharacterEvent(codePoint));
+    }
+
     public boolean charTyped(CharacterEvent event) {
         if (sodiumDialogOpen) return true;
         if (eyesPanelOpen) return true;
         if (skinPanelOpen) {
             if (skinTab == 1) return true;
             if (skinInputBox != null && skinInputBox.isFocused()
-                && skinInputBox.charTyped(event)) {
+                && skinInputBox.charTyped((char) event.codepoint(), 0)) {
                 return true;
             }
-            return super.charTyped(event);
+            return super.charTyped((char) event.codepoint(), 0);
         }
         if (nameDialogOpen) {
             int cp = event.codepoint();
@@ -3523,10 +3538,14 @@ public class PoseEditorScreen extends Screen {
             }
             return true;
         }
-        return super.charTyped(event);
+        return super.charTyped((char) event.codepoint(), 0);
     }
 
     @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        return keyPressed(new KeyEvent(keyCode, scanCode, modifiers));
+    }
+
     public boolean keyPressed(KeyEvent event) {
         if (sodiumDialogOpen) {
             if (event.key() == 256) { // ESC: not now
@@ -3553,10 +3572,10 @@ public class PoseEditorScreen extends Screen {
                 return true;
             }
             if (skinInputBox != null && skinInputBox.isFocused()
-                && skinInputBox.keyPressed(event)) {
+                && skinInputBox.keyPressed(event.key(), event.scancode(), event.modifiers())) {
                 return true;
             }
-            return super.keyPressed(event);
+            return super.keyPressed(event.key(), event.scancode(), event.modifiers());
         }
         if (nameDialogOpen) {
             if (event.key() == 256) { // ESC cancels
@@ -3582,7 +3601,7 @@ public class PoseEditorScreen extends Screen {
         }
         boolean ctrl = (event.modifiers() & 2) != 0; // GLFW_MOD_CONTROL
         if (!editingPose && event.key() != 256) {
-            return super.keyPressed(event);
+            return super.keyPressed(event.key(), event.scancode(), event.modifiers());
         }
         if (ctrl) {
             switch (event.key()) {
@@ -3596,7 +3615,7 @@ public class PoseEditorScreen extends Screen {
                 }
                 default -> { }
             }
-            return super.keyPressed(event);
+            return super.keyPressed(event.key(), event.scancode(), event.modifiers());
         }
         switch (event.key()) {
             case 82 -> { // R
@@ -3618,7 +3637,7 @@ public class PoseEditorScreen extends Screen {
             default -> { }
         }
         // Screen#keyPressed closes on ESC when shouldCloseOnEsc() is true.
-        return super.keyPressed(event);
+        return super.keyPressed(event.key(), event.scancode(), event.modifiers());
     }
 
     private boolean cleanedUp;
