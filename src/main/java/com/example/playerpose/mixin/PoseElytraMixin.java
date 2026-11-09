@@ -6,8 +6,8 @@ import com.example.playerpose.pose.PoseBone;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.ElytraModel;
-import net.minecraft.client.renderer.entity.state.PlayerRenderState;
-import net.minecraft.client.renderer.entity.state.HumanoidRenderState;
+import net.minecraft.world.entity.LivingEntity;
+import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -39,8 +39,8 @@ public abstract class PoseElytraMixin {
     private static final String LEFT_WING = "left_wing";
     private static final String RIGHT_WING = "right_wing";
 
-    @Shadow private ModelPart leftWing;
-    @Shadow private ModelPart rightWing;
+    @Final @Shadow private ModelPart leftWing;
+    @Final @Shadow private ModelPart rightWing;
 
     private ModelPart playerpose$bodyAnchor;
     private ModelPart playerpose$elytraAnchor;
@@ -68,10 +68,13 @@ public abstract class PoseElytraMixin {
     }
 
     @Inject(
-        method = "setupAnim(Lnet/minecraft/client/renderer/entity/state/HumanoidRenderState;)V",
+        method = "setupAnim(Lnet/minecraft/world/entity/LivingEntity;FFFFF)V",
         at = @At("TAIL")
     )
-    private void playerpose$applyBodyPose(HumanoidRenderState state, CallbackInfo ci) {
+    private void playerpose$applyBodyPose(LivingEntity entity, float limbSwing,
+                                          float limbSwingAmount, float ageInTicks,
+                                          float netHeadYaw, float headPitch,
+                                          CallbackInfo ci) {
         ModelPart body = playerpose$bodyAnchor;
         ModelPart elytra = playerpose$elytraAnchor;
         if (body == null || elytra == null) return;
@@ -81,9 +84,9 @@ public abstract class PoseElytraMixin {
         elytra.setRotation(0.0F, 0.0F, 0.0F);
 
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || !(state instanceof PlayerRenderState avatar)) return;
+        if (mc.player == null || entity == null) return;
 
-        Pose pose = PlayerPoseClient.resolvePoseForEntity(mc, avatar.id);
+        Pose pose = PlayerPoseClient.resolvePoseForEntity(mc, entity.getId());
         PoseBone bodyBone = findBone(pose, "body");
         if (bodyBone != null && !bodyBone.isRest()) {
             body.setPos((float) bodyBone.tx, (float) bodyBone.ty, (float) bodyBone.tz);
@@ -111,7 +114,7 @@ public abstract class PoseElytraMixin {
         }
 
         // The gizmo needs a pivot even while the wings hang off the torso centre.
-        if (avatar.id == mc.player.getId()) {
+        if (entity.getId() == mc.player.getId()) {
             PlayerPoseClient.publishJointPivot("cape", body.x, body.y, body.z);
         }
     }

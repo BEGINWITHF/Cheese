@@ -147,7 +147,7 @@ public final class PoseCompat {
 
     private static boolean hasResource(Minecraft mc, String path) {
         return mc.getResourceManager()
-            .getResource(ResourceLocation.fromNamespaceAndPath("minecraft", path))
+            .getResource(new ResourceLocation("minecraft", path))
             .isPresent();
     }
 }

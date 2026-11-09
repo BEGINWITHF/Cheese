@@ -1,10 +1,7 @@
 package com.example.playerpose.pose;
 
-import com.example.playerpose.mixin.ModelPartAccessor;
 import net.minecraft.client.model.geom.ModelPart;
-
-import java.util.Arrays;
-import java.util.List;
+import net.minecraft.client.model.geom.PlayerPoseGeometry;
 
 /**
  * Post-bake fixup for the sliced humanoid armor meshes.
@@ -51,61 +48,18 @@ public final class ArmorSliceFixer {
         }
     }
 
-    private static List<ModelPart.Cube> cubes(ModelPart part) {
-        return ((ModelPartAccessor) (Object) part).playerpose$cubes();
-    }
-
     /** Move every +Y (far end) face vertex back by dv rows of the 64x32 armor texture. */
     private static void shiftEndFace(ModelPart part, float dv) {
-        for (ModelPart.Cube cube : cubes(part)) {
-            for (int i = 0; i < cube.polygons.length; i++) {
-                ModelPart.Polygon polygon = cube.polygons[i];
-                if (polygon.normal().y() < 0.5F) continue; // +Y = hand/foot end
-                ModelPart.Vertex[] old = polygon.vertices();
-                ModelPart.Vertex[] fixed = new ModelPart.Vertex[old.length];
-                for (int j = 0; j < old.length; j++) {
-                    fixed[j] = old[j].remap(old[j].u(), old[j].v() + dv);
-                }
-                cube.polygons[i] = new ModelPart.Polygon(fixed, polygon.normal());
-            }
-        }
+        PlayerPoseGeometry.shiftEndFace(part, dv);
     }
 
     /** Hide one horizontal cap by collapsing its vertices to a point. */
     private static void removeHorizontalFace(ModelPart part, float normalY) {
-        for (ModelPart.Cube cube : cubes(part)) {
-            for (int i = 0; i < cube.polygons.length; i++) {
-                ModelPart.Polygon polygon = cube.polygons[i];
-                if (Math.abs(polygon.normal().y() - normalY) > 0.5F) continue;
-                ModelPart.Vertex[] old = polygon.vertices();
-                if (old.length == 0) continue;
-                ModelPart.Vertex[] degenerate = new ModelPart.Vertex[old.length];
-                Arrays.fill(degenerate, old[0]);
-                cube.polygons[i] = new ModelPart.Polygon(degenerate, polygon.normal());
-            }
-        }
+        PlayerPoseGeometry.removeHorizontalFace(part, normalY);
     }
 
     /** Put vertices past the slice boundary onto the boundary plane. */
     private static void clampSeam(ModelPart part, float seam, boolean below) {
-        for (ModelPart.Cube cube : cubes(part)) {
-            for (int i = 0; i < cube.polygons.length; i++) {
-                ModelPart.Polygon polygon = cube.polygons[i];
-                ModelPart.Vertex[] old = polygon.vertices();
-                ModelPart.Vertex[] fixed = new ModelPart.Vertex[old.length];
-                boolean changed = false;
-                for (int j = 0; j < old.length; j++) {
-                    ModelPart.Vertex v = old[j];
-                    float y = v.pos().y;
-                    if (below ? y < seam : y > seam) {
-                        y = seam;
-                        changed = true;
-                    }
-                    fixed[j] = y == v.pos().y ? v
-                        : new ModelPart.Vertex(v.pos().x, y, v.pos().z, v.u(), v.v());
-                }
-                if (changed) cube.polygons[i] = new ModelPart.Polygon(fixed, polygon.normal());
-            }
-        }
+        PlayerPoseGeometry.clampSeam(part, seam, below);
     }
 }

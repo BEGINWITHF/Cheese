@@ -9,6 +9,7 @@
     "PartDefinitionAccessor",
     "PoseArmorSplitMixin",
     "PoseModelMixin",
+    "PoseSkinOverrideMixin",
     "PoseLivingRendererMixin",
     "PoseLimbSplitMixin",
     "PoseCapeMixin",

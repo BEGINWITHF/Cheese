@@ -100,8 +100,33 @@ public final class PreviewSkinManager {
     private static boolean fetchedGear;
     private static PlayerSkin.Model model = PlayerSkin.Model.WIDE;
     private static int counter;
+    /**
+     * The preview skin active during the editor's immediate entity draw. 1.20.6 has no
+     * per-render-state skin, so the renderer reads this instead of the player's skin
+     * for exactly the duration of that draw.
+     */
+    private static final ThreadLocal<PlayerSkin> RENDER_SKIN = new ThreadLocal<>();
 
     private PreviewSkinManager() {}
+
+    /** Editor-only: make the next entity draw use the preview skin. */
+    public static void beginRenderOverride() {
+        PlayerSkin preview = active ? skin : null;
+        if (preview != null) {
+            RENDER_SKIN.set(preview);
+        } else {
+            RENDER_SKIN.remove();
+        }
+    }
+
+    public static void endRenderOverride() {
+        RENDER_SKIN.remove();
+    }
+
+    /** The skin an entity should use while the editor is drawing its preview. */
+    public static PlayerSkin renderSkin() {
+        return RENDER_SKIN.get();
+    }
 
     public static PlayerSkin skin() {
         return active ? skin : null;
@@ -158,7 +183,7 @@ public final class PreviewSkinManager {
             return;
         }
         Minecraft mc = Minecraft.getInstance();
-        ResourceLocation resource = ResourceLocation.fromNamespaceAndPath("player-pose",
+        ResourceLocation resource = new ResourceLocation("player-pose",
             "textures/cape/demo_cape.png");
         var res = mc.getResourceManager().getResource(resource);
         if (res.isEmpty()) {
@@ -167,7 +192,7 @@ public final class PreviewSkinManager {
         }
         try (var in = res.get().open()) {
             NativeImage image = NativeImage.read(in);
-            ResourceLocation id = ResourceLocation.fromNamespaceAndPath("player-pose",
+            ResourceLocation id = new ResourceLocation("player-pose",
                 "preview/cape_" + (counter++));
             DynamicTexture texture = new DynamicTexture(image);
             mc.getTextureManager().register(id, texture);
@@ -209,7 +234,7 @@ public final class PreviewSkinManager {
 
     /** Use a bundled official cape texture for the preview. */
     public static void selectOfficialCape(OfficialCape cape, Consumer<String> feedback) {
-        ResourceLocation id = ResourceLocation.fromNamespaceAndPath("player-pose",
+        ResourceLocation id = new ResourceLocation("player-pose",
             "textures/cape/official/" + cape.id() + ".png");
         var resource = Minecraft.getInstance().getResourceManager().getResource(id);
         if (resource.isEmpty()) {
@@ -273,7 +298,7 @@ public final class PreviewSkinManager {
     private static boolean applyCapeImage(NativeImage image, String key) {
         if (image.getWidth() != 64 || image.getHeight() != 32) return false;
         releaseChosenCape();
-        ResourceLocation id = ResourceLocation.fromNamespaceAndPath("player-pose",
+        ResourceLocation id = new ResourceLocation("player-pose",
             "preview/cape_" + (counter++));
         DynamicTexture texture = new DynamicTexture(image);
         Minecraft.getInstance().getTextureManager().register(id, texture);
@@ -472,7 +497,7 @@ public final class PreviewSkinManager {
         if (png == null || png.length == 0) return null;
         try {
             NativeImage image = NativeImage.read(png);
-            ResourceLocation id = ResourceLocation.fromNamespaceAndPath("player-pose",
+            ResourceLocation id = new ResourceLocation("player-pose",
                 "preview/" + name + "_" + (counter++));
             DynamicTexture texture = new DynamicTexture(image);
             Minecraft.getInstance().getTextureManager().register(id, texture);
@@ -549,7 +574,7 @@ public final class PreviewSkinManager {
             source.getWidth(), source.getHeight(), true);
         for (int y = 0; y < source.getHeight(); y++) {
             for (int x = 0; x < source.getWidth(); x++) {
-                copy.setPixel(x, y, source.getPixel(x, y));
+                copy.setPixelRGBA(x, y, source.getPixelRGBA(x, y));
             }
         }
         return modernize(copy);
@@ -605,7 +630,7 @@ public final class PreviewSkinManager {
     /** Load the built-in blink demo skin (supports both skin conventions). */
     public static void loadBundledDemo(PlayerSkin.Model type, Consumer<String> feedback) {
         Minecraft mc = Minecraft.getInstance();
-        ResourceLocation id = ResourceLocation.fromNamespaceAndPath("player-pose",
+        ResourceLocation id = new ResourceLocation("player-pose",
             "textures/skin/blink_demo_"
                 + (type == PlayerSkin.Model.SLIM ? "slim" : "wide") + ".png");
         var resource = mc.getResourceManager().getResource(id);
@@ -677,7 +702,7 @@ public final class PreviewSkinManager {
         }
 
         releaseTexture();
-        ResourceLocation id = ResourceLocation.fromNamespaceAndPath("player-pose",
+        ResourceLocation id = new ResourceLocation("player-pose",
             "preview/skin_" + (counter++));
         DynamicTexture texture = new DynamicTexture(image);
         mc.getTextureManager().register(id, texture);
@@ -734,12 +759,12 @@ public final class PreviewSkinManager {
         NativeImage out = new NativeImage(NativeImage.Format.RGBA, 64, 64, true);
         for (int y = 0; y < 32; y++) {
             for (int x = 0; x < 64; x++) {
-                out.setPixel(x, y, source.getPixel(x, y));
+                out.setPixelRGBA(x, y, source.getPixelRGBA(x, y));
             }
         }
         for (int y = 0; y < 16; y++) {
             for (int x = 32; x < 64; x++) {
-                out.setPixel(x, y, 0);
+                out.setPixelRGBA(x, y, 0);
             }
         }
         copyRegion(source, out, 40, 16, 32, 48); // right arm -> left arm
@@ -751,7 +776,7 @@ public final class PreviewSkinManager {
                                    int sx, int sy, int dx, int dy) {
         for (int y = 0; y < 16; y++) {
             for (int x = 0; x < 16; x++) {
-                out.setPixel(dx + x, dy + y, source.getPixel(sx + x, sy + y));
+                out.setPixelRGBA(dx + x, dy + y, source.getPixelRGBA(sx + x, sy + y));
             }
         }
     }

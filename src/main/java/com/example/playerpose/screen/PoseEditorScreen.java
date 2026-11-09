@@ -20,10 +20,6 @@ import com.example.playerpose.compat.CharacterEvent;
 import com.example.playerpose.compat.KeyEvent;
 import com.example.playerpose.compat.MouseButtonEvent;
 import net.minecraft.client.multiplayer.PlayerInfo;
-import net.minecraft.client.renderer.entity.EntityRenderer;
-import net.minecraft.client.renderer.entity.state.PlayerRenderState;
-import net.minecraft.client.renderer.entity.state.EntityRenderState;
-import net.minecraft.client.renderer.entity.state.LivingEntityRenderState;
 import net.minecraft.network.chat.Component;
 import net.minecraft.client.resources.PlayerSkin;
 import net.minecraft.world.entity.LivingEntity;
@@ -1205,7 +1201,7 @@ public class PoseEditorScreen extends Screen {
         if (image == null) return;
         for (int py = 0; py < 16; py++) {
             for (int px = 0; px < 10; px++) {
-                int color = image.getPixel(px, py);
+                int color = image.getPixelRGBA(px, py);
                 if ((color >>> 24) == 0) continue;
                 graphics.fill(x + px * scale, y + py * scale,
                     x + (px + 1) * scale, y + (py + 1) * scale, color);
@@ -1407,7 +1403,7 @@ public class PoseEditorScreen extends Screen {
         int cell = Math.max(1, size / 8);
         for (int py = 0; py < 8; py++) {
             for (int px = 0; px < 8; px++) {
-                int color = image.getPixel(8 + px, 8 + py);
+                int color = image.getPixelRGBA(8 + px, 8 + py);
                 if ((color >>> 24) != 0) {
                     graphics.fill(x + px * cell, y + py * cell,
                         x + (px + 1) * cell, y + (py + 1) * cell, color);
@@ -1417,7 +1413,7 @@ public class PoseEditorScreen extends Screen {
         // Hat/outer head layer.
         for (int py = 0; py < 8; py++) {
             for (int px = 0; px < 8; px++) {
-                int color = image.getPixel(40 + px, 8 + py);
+                int color = image.getPixelRGBA(40 + px, 8 + py);
                 if (((color >>> 24) & 0xFF) > 8) {
                     graphics.fill(x + px * cell, y + py * cell,
                         x + (px + 1) * cell, y + (py + 1) * cell, color);
@@ -2596,41 +2592,41 @@ public class PoseEditorScreen extends Screen {
         LivingEntity entity = mc.player;
         if (entity == null) return;
 
-        EntityRenderer<? super LivingEntity, ?> renderer =
-            mc.getEntityRenderDispatcher().getRenderer(entity);
-        if (renderer == null) return;
+        // 1.20.6 renders entities immediately instead of through a render state, so
+        // orient the real player for this one draw and put everything back afterwards.
+        float oldBodyRot = entity.yBodyRot;
+        float oldBodyRotO = entity.yBodyRotO;
+        float oldYRot = entity.getYRot();
+        float oldXRot = entity.getXRot();
+        float oldHeadRot = entity.yHeadRot;
+        float oldHeadRotO = entity.yHeadRotO;
+        float bodyRot = 180.0F + (float) camYaw;
+        try {
+            entity.yBodyRot = bodyRot;
+            entity.yBodyRotO = bodyRot;
+            entity.setYRot(0.0F);
+            entity.setXRot(0.0F);
+            // Keep the head on the torso instead of pointing it at the mouse.
+            entity.yHeadRot = bodyRot;
+            entity.yHeadRotO = bodyRot;
 
-        EntityRenderState state = renderer.createRenderState(entity, partialTick);
-        if (state instanceof PlayerRenderState avatar) {
-            var preview = PreviewSkinManager.skin();
-            if (preview != null) {
-                // Editor-only: replace the render state's skin, never the player's.
-                avatar.skin = preview;
-            }
+            Quaternionf rot = new Quaternionf().rotateZ((float) Math.PI);
+            Quaternionf pitchQ = new Quaternionf().rotateX((float) Math.toRadians(camPitch));
+            rot.mul(pitchQ);
+            Vector3f offset = new Vector3f(0.0F, entity.getBbHeight() / 2.0F, 0.0F);
+
+            PreviewSkinManager.beginRenderOverride();
+            graphics.entity(entity, (float) modelPxPerBlock(), offset, rot, pitchQ,
+                vpX0, vpY0, vpX1, vpY1);
+        } finally {
+            PreviewSkinManager.endRenderOverride();
+            entity.yBodyRot = oldBodyRot;
+            entity.yBodyRotO = oldBodyRotO;
+            entity.setYRot(oldYRot);
+            entity.setXRot(oldXRot);
+            entity.yHeadRot = oldHeadRot;
+            entity.yHeadRotO = oldHeadRotO;
         }
-
-        if (state instanceof LivingEntityRenderState living) {
-            float scale = living.scale;
-            state.boundingBoxWidth *= scale;
-            state.boundingBoxHeight *= scale;
-            living.scale = 1.0F;
-            // bodyRot faces the whole model at the camera...
-            living.bodyRot = 180.0F + (float) camYaw;
-            // ...and yRot/xRot are the HEAD's offset from the body (HumanoidModel
-            // writes them straight into head.yRot/xRot). Vanilla's inventory preview
-            // points them at the mouse, which makes the head follow the cursor and
-            // fight whatever the pose sets for "head", so keep the head on the torso.
-            living.yRot = 0.0F;
-            living.xRot = 0.0F;
-        }
-
-        Quaternionf rot = new Quaternionf().rotateZ((float) Math.PI);
-        Quaternionf pitchQ = new Quaternionf().rotateX((float) Math.toRadians(camPitch));
-        rot.mul(pitchQ);
-
-        Vector3f offset = new Vector3f(0.0F, state.boundingBoxHeight / 2.0F, 0.0F);
-        graphics.entity(state, renderer, (float) modelPxPerBlock(), offset, rot, pitchQ,
-            vpX0, vpY0, vpX1, vpY1);
     }
 
     /**

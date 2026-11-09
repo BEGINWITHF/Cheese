@@ -1,16 +1,15 @@
 package com.example.playerpose.compat;
 
 import com.mojang.blaze3d.platform.Lighting;
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.renderer.MultiBufferSource;
-import net.minecraft.client.renderer.entity.EntityRenderer;
 import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
-import net.minecraft.client.renderer.entity.state.EntityRenderState;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
+import net.minecraft.world.entity.LivingEntity;
 import org.joml.Quaternionf;
 import org.joml.Quaternionfc;
 import org.joml.Vector3fc;
@@ -111,40 +110,37 @@ public final class GuiGraphicsExtractor {
     // ---- entity preview --------------------------------------------------
 
     /**
-     * Renders an entity render state inside the GUI. 1.21.3 has no deferred
-     * {@code submitEntityRenderState}, so this mirrors
-     * {@code InventoryScreen#renderEntityInInventory} and invokes the renderer
-     * immediately through the GUI's special-render buffer.
+     * Renders an entity inside the GUI. 1.20.6 has no render states, so this mirrors
+     * {@code InventoryScreen#renderEntityInInventory} and renders immediately through
+     * the GUI's buffer source.
      */
-    public void entity(EntityRenderState state, EntityRenderer<?, ?> renderer, float scale,
+    public void entity(LivingEntity entity, float scale,
                        Vector3fc offset, Quaternionfc rotation, Quaternionfc pitchRotation,
                        int x0, int y0, int x1, int y1) {
         PoseStack pose = delegate.pose();
         pose.pushPose();
-        pose.translate((x0 + x1) / 2.0D, (y0 + y1) / 2.0D, 50.0D);
-        pose.scale(scale, scale, -scale);
-        pose.translate(offset.x(), offset.y(), offset.z());
-        pose.mulPose(new Quaternionf(rotation));
-        delegate.flush();
+        try {
+            pose.translate((x0 + x1) / 2.0D, (y0 + y1) / 2.0D, 50.0D);
+            pose.scale(scale, scale, -scale);
+            pose.translate(offset.x(), offset.y(), offset.z());
+            pose.mulPose(new Quaternionf(rotation));
+            delegate.flush();
 
-        Lighting.setupForEntityInInventory();
-        EntityRenderDispatcher dispatcher = Minecraft.getInstance().getEntityRenderDispatcher();
-        if (pitchRotation != null) {
-            dispatcher.overrideCameraOrientation(
-                new Quaternionf(pitchRotation).conjugate().rotateY((float) Math.PI));
+            Lighting.setupForEntityInInventory();
+            EntityRenderDispatcher dispatcher = Minecraft.getInstance().getEntityRenderDispatcher();
+            if (pitchRotation != null) {
+                dispatcher.overrideCameraOrientation(
+                    new Quaternionf(pitchRotation).conjugate());
+            }
+            dispatcher.setRenderShadow(false);
+            RenderSystem.runAsFancy(() -> dispatcher.render(entity, 0.0D, 0.0D, 0.0D,
+                0.0F, 1.0F, pose, delegate.bufferSource(), 15728880));
+            delegate.flush();
+            dispatcher.setRenderShadow(true);
+        } finally {
+            pose.popPose();
+            Lighting.setupFor3DItems();
         }
-        dispatcher.setRenderShadow(false);
-        delegate.drawSpecial(buffers -> renderState(renderer, state, pose, buffers));
-        delegate.flush();
-        dispatcher.setRenderShadow(true);
-        pose.popPose();
-        Lighting.setupFor3DItems();
-    }
-
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private static void renderState(EntityRenderer renderer, EntityRenderState state,
-                                    PoseStack pose, MultiBufferSource buffers) {
-        renderer.render(state, pose, buffers, 15728880);
     }
 
     // ---- tooltip ---------------------------------------------------------

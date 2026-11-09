@@ -4,6 +4,7 @@ import com.example.playerpose.pose.PoseLimbs;
 import com.example.playerpose.pose.PoseLog;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.geom.PartPose;
+import net.minecraft.client.model.geom.PlayerPoseGeometry;
 import net.minecraft.client.model.geom.builders.CubeDeformation;
 import net.minecraft.client.model.geom.builders.CubeListBuilder;
 import net.minecraft.client.model.geom.builders.MeshDefinition;
@@ -15,7 +16,6 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 
@@ -177,19 +177,7 @@ public abstract class PoseLimbSplitMixin {
     private static void fixEyelid(ModelPart head, String name) {
         if (head == null || !head.hasChild(name)) return;
         ModelPart part = head.getChild(name);
-        float u = 11.5F / 64.0F;
-        float v = 12.5F / 64.0F;
-        for (ModelPart.Cube cube : ((ModelPartAccessor) (Object) part).playerpose$cubes()) {
-            for (int i = 0; i < cube.polygons.length; i++) {
-                ModelPart.Polygon polygon = cube.polygons[i];
-                ModelPart.Vertex[] old = polygon.vertices();
-                ModelPart.Vertex[] fixed = new ModelPart.Vertex[old.length];
-                for (int j = 0; j < old.length; j++) {
-                    fixed[j] = old[j].remap(u, v);
-                }
-                cube.polygons[i] = new ModelPart.Polygon(fixed, polygon.normal());
-            }
-        }
+        PlayerPoseGeometry.fixEyelid(part, 11.5F / 64.0F, 12.5F / 64.0F);
     }
 
     private static void fixLimb(ModelPart root, String limbName, String overlayName,
@@ -278,19 +266,7 @@ public abstract class PoseLimbSplitMixin {
 
     /** Move every +Y (far end) face vertex back by dv rows of the 64x64 skin texture. */
     private static void shiftEndFace(ModelPart part, float dv) {
-        List<ModelPart.Cube> cubes = ((ModelPartAccessor) (Object) part).playerpose$cubes();
-        for (ModelPart.Cube cube : cubes) {
-            for (int i = 0; i < cube.polygons.length; i++) {
-                ModelPart.Polygon polygon = cube.polygons[i];
-                if (polygon.normal().y() < 0.5F) continue; // +Y = hand/foot end
-                ModelPart.Vertex[] old = polygon.vertices();
-                ModelPart.Vertex[] fixed = new ModelPart.Vertex[old.length];
-                for (int j = 0; j < old.length; j++) {
-                    fixed[j] = old[j].remap(old[j].u(), old[j].v() + dv);
-                }
-                cube.polygons[i] = new ModelPart.Polygon(fixed, polygon.normal());
-            }
-        }
+        PlayerPoseGeometry.shiftEndFace(part, dv);
     }
 
     /**
@@ -299,41 +275,11 @@ public abstract class PoseLimbSplitMixin {
      * rim of second-layer pixels at every slice boundary.
      */
     private static void removeHorizontalFace(ModelPart part, float normalY) {
-        List<ModelPart.Cube> cubes = ((ModelPartAccessor) (Object) part).playerpose$cubes();
-        for (ModelPart.Cube cube : cubes) {
-            for (int i = 0; i < cube.polygons.length; i++) {
-                ModelPart.Polygon polygon = cube.polygons[i];
-                if (Math.abs(polygon.normal().y() - normalY) > 0.5F) continue;
-                ModelPart.Vertex[] old = polygon.vertices();
-                if (old.length == 0) continue;
-                ModelPart.Vertex[] degenerate = new ModelPart.Vertex[old.length];
-                Arrays.fill(degenerate, old[0]);
-                cube.polygons[i] = new ModelPart.Polygon(degenerate, polygon.normal());
-            }
-        }
+        PlayerPoseGeometry.removeHorizontalFace(part, normalY);
     }
 
     /** Put vertices past the slice boundary onto the boundary plane. */
     private static void clampSeam(ModelPart part, float seam, boolean below) {
-        List<ModelPart.Cube> cubes = ((ModelPartAccessor) (Object) part).playerpose$cubes();
-        for (ModelPart.Cube cube : cubes) {
-            for (int i = 0; i < cube.polygons.length; i++) {
-                ModelPart.Polygon polygon = cube.polygons[i];
-                ModelPart.Vertex[] old = polygon.vertices();
-                ModelPart.Vertex[] fixed = new ModelPart.Vertex[old.length];
-                boolean changed = false;
-                for (int j = 0; j < old.length; j++) {
-                    ModelPart.Vertex v = old[j];
-                    float y = v.pos().y;
-                    if (below ? y < seam : y > seam) {
-                        y = seam;
-                        changed = true;
-                    }
-                    fixed[j] = y == v.pos().y ? v
-                        : new ModelPart.Vertex(v.pos().x, y, v.pos().z, v.u(), v.v());
-                }
-                if (changed) cube.polygons[i] = new ModelPart.Polygon(fixed, polygon.normal());
-            }
-        }
+        PlayerPoseGeometry.clampSeam(part, seam, below);
     }
 }
