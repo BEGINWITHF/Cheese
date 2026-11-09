@@ -7,11 +7,10 @@ import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.model.EntityModel;
 import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.model.geom.ModelPart;
-import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.entity.LivingEntityRenderer;
 import net.minecraft.client.renderer.entity.state.HumanoidRenderState;
 import net.minecraft.client.renderer.entity.state.LivingEntityRenderState;
-import net.minecraft.client.renderer.state.CameraRenderState;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -19,13 +18,13 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Applies the pose once more after LivingEntityRenderer#submit has run
+ * Applies the pose once more after LivingEntityRenderer#render has run
  * EntityModel#setupAnim, and therefore after animation mods that inject at the HEAD
- * of submit (EMF / Fresh Animations: Player Extension).
+ * of render (EMF / Fresh Animations: Player Extension).
  *
  * <p>Mixin priority alone cannot beat those mods: our normal injection sits at the
  * TAIL of HumanoidModel#setupAnim, while EMF writes its animation later, at the start
- * of submit. Injecting after the setupAnim call puts our pose back as the last writer
+ * of render. Injecting after the setupAnim call puts our pose back as the last writer
  * while still leaving the rest of the render pipeline untouched.</p>
  */
 @Mixin(LivingEntityRenderer.class)
@@ -37,25 +36,25 @@ public abstract class PoseLivingRendererMixin {
     private static boolean loggedHook;
 
     @Inject(
-        method = "submit(Lnet/minecraft/client/renderer/entity/state/LivingEntityRenderState;"
+        method = "render(Lnet/minecraft/client/renderer/entity/state/LivingEntityRenderState;"
             + "Lcom/mojang/blaze3d/vertex/PoseStack;"
-            + "Lnet/minecraft/client/renderer/SubmitNodeCollector;"
-            + "Lnet/minecraft/client/renderer/state/CameraRenderState;)V",
+            + "Lnet/minecraft/client/renderer/MultiBufferSource;I)V",
         at = @At(
             value = "INVOKE",
-            target = "Lnet/minecraft/client/model/EntityModel;setupAnim(Ljava/lang/Object;)V",
+            target = "Lnet/minecraft/client/model/EntityModel;"
+                + "setupAnim(Lnet/minecraft/client/renderer/entity/state/EntityRenderState;)V",
             shift = At.Shift.AFTER
         )
     )
     private void playerpose$applyAfterAnimationMods(LivingEntityRenderState state, PoseStack poseStack,
-                                                    SubmitNodeCollector collector, CameraRenderState camera,
+                                                    MultiBufferSource bufferSource, int packedLight,
                                                     CallbackInfo ci) {
         // Only EMF needs this second pass; without it, keep the original one-pass
         // setupAnim path exactly as before.
         if (!FabricLoader.getInstance().isModLoaded("entity_model_features")) return;
         if (!loggedHook) {
             loggedHook = true;
-            PoseLog.info("submit hook: model=%s humanoid=%s state=%s humanoidState=%s",
+            PoseLog.info("render hook: model=%s humanoid=%s state=%s humanoidState=%s",
                 model == null ? "null" : model.getClass().getName(),
                 model instanceof HumanoidModel<?>,
                 state == null ? "null" : state.getClass().getName(),

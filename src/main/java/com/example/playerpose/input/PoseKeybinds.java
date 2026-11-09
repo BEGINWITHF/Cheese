@@ -21,9 +21,7 @@ public final class PoseKeybinds {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("playerpose.keybinds");
 
-    private static final KeyMapping.Category CATEGORY =
-        KeyMapping.Category.register(
-            net.minecraft.resources.Identifier.fromNamespaceAndPath(PlayerPoseClient.MOD_ID, "main"));
+    private static final String CATEGORY = "key.category.player-pose.main";
 
     private static KeyMapping editorBinding;
 

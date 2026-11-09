@@ -5,8 +5,8 @@ import com.example.playerpose.pose.Pose;
 import com.example.playerpose.pose.PoseBone;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.geom.ModelPart;
-import net.minecraft.client.model.object.equipment.ElytraModel;
-import net.minecraft.client.renderer.entity.state.AvatarRenderState;
+import net.minecraft.client.model.ElytraModel;
+import net.minecraft.client.renderer.entity.state.PlayerRenderState;
 import net.minecraft.client.renderer.entity.state.HumanoidRenderState;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -81,7 +81,7 @@ public abstract class PoseElytraMixin {
         elytra.setRotation(0.0F, 0.0F, 0.0F);
 
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || !(state instanceof AvatarRenderState avatar)) return;
+        if (mc.player == null || !(state instanceof PlayerRenderState avatar)) return;
 
         Pose pose = PlayerPoseClient.resolvePoseForEntity(mc, avatar.id);
         PoseBone bodyBone = findBone(pose, "body");

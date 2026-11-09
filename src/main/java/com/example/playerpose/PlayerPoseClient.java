@@ -99,9 +99,9 @@ public class PlayerPoseClient implements ClientModInitializer {
         var player = minecraft.player;
         if (player == null) return "";
         var profile = player.getGameProfile();
-        // authlib 9.x made GameProfile a record: name() instead of getName().
-        if (profile != null && profile.name() != null) {
-            return profile.name();
+        // 1.21.5 still ships authlib 6.x, where GameProfile uses bean accessors.
+        if (profile != null && profile.getName() != null) {
+            return profile.getName();
         }
         return "";
     }

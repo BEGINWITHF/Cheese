@@ -1,11 +1,17 @@
 package com.example.playerpose.compat;
 
+import com.mojang.blaze3d.platform.Lighting;
+import com.mojang.blaze3d.vertex.PoseStack;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
 import net.minecraft.client.renderer.entity.state.EntityRenderState;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
+import org.joml.Quaternionf;
 import org.joml.Quaternionfc;
+import org.joml.Vector3f;
 import org.joml.Vector3fc;
 
 import java.util.List;
@@ -111,18 +117,36 @@ public final class GuiGraphicsExtractor {
     public void entity(EntityRenderState state, float scale, Vector3fc offset,
                        Quaternionfc rotation, Quaternionfc pitchRotation,
                        int x0, int y0, int x1, int y1) {
-        delegate.submitEntityRenderState(state, scale, new org.joml.Vector3f(offset),
-            new org.joml.Quaternionf(rotation), new org.joml.Quaternionf(pitchRotation),
-            x0, y0, x1, y1);
+        PoseStack pose = delegate.pose();
+        pose.pushPose();
+        pose.translate((x0 + x1) / 2.0F, (y0 + y1) / 2.0F, 50.0D);
+        pose.scale(scale, scale, -scale);
+        pose.translate(offset.x(), offset.y(), offset.z());
+        pose.mulPose(rotation);
+        delegate.flush();
+        Lighting.setupForEntityInInventory();
+
+        EntityRenderDispatcher dispatcher = Minecraft.getInstance().getEntityRenderDispatcher();
+        if (pitchRotation != null) {
+            dispatcher.overrideCameraOrientation(
+                new Quaternionf(pitchRotation).conjugate().rotateY((float) Math.PI));
+        }
+        dispatcher.setRenderShadow(false);
+        delegate.drawSpecial(bufferSource ->
+            dispatcher.render(state, 0.0D, 0.0D, 0.0D, delegate.pose(), bufferSource, 15728880));
+        delegate.flush();
+        dispatcher.setRenderShadow(true);
+        pose.popPose();
+        Lighting.setupFor3DItems();
     }
 
     // ---- tooltip ---------------------------------------------------------
 
     public void setComponentTooltipForNextFrame(Font font, List<Component> lines, int mouseX, int mouseY) {
-        delegate.setComponentTooltipForNextFrame(font, lines, mouseX, mouseY);
+        delegate.renderComponentTooltip(font, lines, mouseX, mouseY);
     }
 
     public void setTooltipForNextFrame(Font font, Component text, int mouseX, int mouseY) {
-        delegate.setTooltipForNextFrame(font, text, mouseX, mouseY);
+        delegate.renderTooltip(font, text, mouseX, mouseY);
     }
 }
