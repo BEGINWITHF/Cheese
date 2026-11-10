@@ -31,7 +31,7 @@ public final class PoseKeybinds {
 
     public static void register() {
         editorBinding = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-            "key.playerpose.toggle", InputConstants.Type.KEYBOARD,
+            "key.playerpose.toggle", InputConstants.Type.KEYSYM,
             InputConstants.KEY_BACKSPACE, CATEGORY));
 
         ClientTickEvents.END_CLIENT_TICK.register(mc -> {

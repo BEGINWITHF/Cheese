@@ -1489,7 +1489,7 @@ public class PoseEditorScreen extends Screen {
             setFocused(skinInputBox);
             skinInputBox.setFocused(true);
             Minecraft mc = Minecraft.getInstance();
-            mc.textInputManager().startTextInput(skinInputBox);
+            mc.textInputManager().startTextInput();
             mc.textInputManager().setTextInputArea(skinInputBox.getX(), skinInputBox.getY(),
                 skinInputBox.getWidth(), skinInputBox.getHeight());
         }
@@ -1536,7 +1536,7 @@ public class PoseEditorScreen extends Screen {
         if (skinInputBox != null) {
             skinInputBox.setVisible(false);
             skinInputBox.setFocused(false);
-            Minecraft.getInstance().textInputManager().stopTextInput(skinInputBox);
+            Minecraft.getInstance().textInputManager().stopTextInput();
         }
     }
 
@@ -1858,7 +1858,7 @@ public class PoseEditorScreen extends Screen {
         nameDialogOpen = true;
         nameDialogLayout();
         Minecraft mc = Minecraft.getInstance();
-        mc.textInputManager().startTextInput(this);
+        mc.textInputManager().startTextInput();
         mc.textInputManager().setTextInputArea(nameDialogX0 + 10, nameDialogY0 + 24,
             nameDialogX1 - nameDialogX0 - 20, 20);
     }
@@ -1866,7 +1866,7 @@ public class PoseEditorScreen extends Screen {
     private void closeNameDialog() {
         nameDialogOpen = false;
         nameDialogText = "";
-        Minecraft.getInstance().textInputManager().stopTextInput(this);
+        Minecraft.getInstance().textInputManager().stopTextInput();
     }
 
     /** Apply the dialog: create a new draft, or rename the current draft. */
@@ -3229,7 +3229,7 @@ public class PoseEditorScreen extends Screen {
                     && my < skinInputBox.getY() + skinInputBox.getHeight()) {
                     setFocused(skinInputBox);
                     skinInputBox.setFocused(true);
-                    Minecraft.getInstance().textInputManager().startTextInput(skinInputBox);
+                    Minecraft.getInstance().textInputManager().startTextInput();
                     Minecraft.getInstance().textInputManager().setTextInputArea(
                         skinInputBox.getX(), skinInputBox.getY(),
                         skinInputBox.getWidth(), skinInputBox.getHeight());
