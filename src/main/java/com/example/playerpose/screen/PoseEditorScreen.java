@@ -2338,6 +2338,16 @@ public class PoseEditorScreen extends Screen {
 
     // ---- rendering -------------------------------------------------------
 
+    /**
+     * The editor paints its own opaque background before rendering the model and panels.
+     * Screen.render() calls renderBackground() before its widgets and this screen calls
+     * super.render() last, so without this override the blurred/dark vanilla background
+     * would be painted on top of the editor content.
+     */
+    @Override
+    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        // no-op: render() paints a full-screen opaque background.
+    }
     @Override
     public void render(GuiGraphics rawGraphics, int mouseX, int mouseY, float partialTick) {
         GuiGraphicsExtractor graphics = new GuiGraphicsExtractor(rawGraphics);
