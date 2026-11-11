@@ -12,6 +12,8 @@ import com.example.playerpose.skin.PreviewSkinManager;
 import com.mojang.blaze3d.platform.NativeImage;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
+import com.mojang.blaze3d.systems.RenderSystem;
+import org.lwjgl.opengl.GL11;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
@@ -265,6 +267,7 @@ public class PoseEditorScreen extends Screen {
     private double camYaw = 20.0;
     private double camPitch = 10.0;
     private double camZoom = 1.0;
+    private boolean viewportLogged;
 
     // Interaction state
     private int activeAxis = PoseGizmo.NONE;
@@ -2295,7 +2298,7 @@ public class PoseEditorScreen extends Screen {
     }
 
     private double modelPxPerBlock() {
-        return ((vpY1 - vpY0) * 0.8 / 2.0) * camZoom;
+        return ((vpY1 - vpY0) * 0.64 / 2.0) * camZoom;
     }
 
     private double[] viewportCenter() {
@@ -2338,10 +2341,27 @@ public class PoseEditorScreen extends Screen {
 
     // ---- rendering -------------------------------------------------------
 
+    /**
+     * The editor paints its own opaque background and renders a 3D model. Vanilla's
+     * blurred/dark screen background is applied by super.render(), which runs after
+     * the editor's custom pass, so it would cover the model and make the custom UI
+     * look blurred. Keep the vanilla background disabled here.
+     */
+    @Override
+    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        // no-op: drawViewport() paints the background before the 3D preview.
+    }
+
     @Override
     public void render(GuiGraphics rawGraphics, int mouseX, int mouseY, float partialTick) {
         GuiGraphicsExtractor graphics = new GuiGraphicsExtractor(rawGraphics);
+        // The opaque base must sit behind the 3D preview; otherwise it writes
+        // depth at z = 0 and clips every part of the model behind that plane.
+        com.mojang.blaze3d.vertex.PoseStack basePose = graphics.delegate().pose();
+        basePose.pushPose();
+        basePose.translate(0.0F, 0.0F, -2000.0F);
         graphics.fill(0, 0, width, height, 0xFF101018);
+        basePose.popPose();
         graphics.fill(0, height - STATUS_H, width, height, 0x30FFFFFF);
 
         Font font = this.font;
@@ -2360,6 +2380,28 @@ public class PoseEditorScreen extends Screen {
 
         super.render(rawGraphics, mouseX, mouseY, partialTick);
 
+        // Draw the 3D preview after the screen has painted its background and widgets.
+        // On 1.21.5 the entity is drawn immediately, so drawing it earlier lets a
+        // later background fill or widget pass cover parts of the model.
+        GuiGraphicsExtractor modelGraphics = new GuiGraphicsExtractor(rawGraphics);
+        modelGraphics.enableScissor(vpX0 + 1, vpY0 + 1, vpX1 - 1, vpY1 - 1);
+        renderPlayerModel(modelGraphics, partialTick);
+        if (gizmoVisible && editingPose && !eyesSelected) {
+            // Lift the handles in front of the model so it cannot clip them.
+            com.mojang.blaze3d.vertex.PoseStack gizmoPose = rawGraphics.pose();
+            gizmoPose.pushPose();
+            gizmoPose.translate(0.0F, 0.0F, 2000.0F);
+            int hoverAxis = buildGizmo(modelGraphics, PoseGizmo.NONE).hitTest(mouseX, mouseY);
+            buildGizmo(modelGraphics, hoverAxis).draw();
+            gizmoPose.popPose();
+        }
+        modelGraphics.disableScissor();
+
+        // Popups and the mode overlay must sit in front of the 3D preview. The
+        // model is drawn around z = 50, so lift these layers above it.
+        com.mojang.blaze3d.vertex.PoseStack overlayPose = graphics.delegate().pose();
+        overlayPose.pushPose();
+        overlayPose.translate(0.0F, 0.0F, 2000.0F);
         // On top of the widgets, so the group border and the mode marker stay visible.
         drawModeGroup(graphics);
         drawLoadMenu(graphics, font, mouseX, mouseY);
@@ -2367,6 +2409,7 @@ public class PoseEditorScreen extends Screen {
         drawSkinPanel(graphics, font, mouseX, mouseY, partialTick);
         drawEyesPanel(graphics, font, mouseX, mouseY);
         drawSodiumDialog(graphics, font, mouseX, mouseY);
+        overlayPose.popPose();
 
         if (!sodiumDialogOpen && !compatWarnings.isEmpty() && compatX1 > compatX0
             && isOver(mouseX, mouseY, compatX0, compatY0,
@@ -2387,6 +2430,12 @@ public class PoseEditorScreen extends Screen {
     private void drawViewport(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
         Font font = this.font;
 
+        // Draw the viewport background and grid deeper than the 3D model. The model
+        // spans roughly z = 50 +/- model scale; at z = -2000 the opaque grid sits
+        // behind the preview and cannot depth-clip it.
+        com.mojang.blaze3d.vertex.PoseStack bgPose = graphics.delegate().pose();
+        bgPose.pushPose();
+        bgPose.translate(0.0F, 0.0F, -2000.0F);
         graphics.fill(vpX0, vpY0, vpX1, vpY1, 0xFF181A22);
         for (int gx = vpX0 + 16; gx < vpX1; gx += 32) {
             graphics.fill(gx, vpY0, gx + 1, vpY1, 0x10FFFFFF);
@@ -2398,14 +2447,7 @@ public class PoseEditorScreen extends Screen {
         graphics.fill(vpX0, vpY1 - 1, vpX1, vpY1, 0xFF666688);
         graphics.fill(vpX0, vpY0, vpX0 + 1, vpY1, 0xFF666688);
         graphics.fill(vpX1 - 1, vpY0, vpX1, vpY1, 0xFF666688);
-
-        graphics.enableScissor(vpX0 + 1, vpY0 + 1, vpX1 - 1, vpY1 - 1);
-        renderPlayerModel(graphics, partialTick);
-        if (gizmoVisible && editingPose && !eyesSelected) {
-            int hoverAxis = buildGizmo(graphics, PoseGizmo.NONE).hitTest(mouseX, mouseY);
-            buildGizmo(graphics, hoverAxis).draw();
-        }
-        graphics.disableScissor();
+        bgPose.popPose();
 
         if (!skinPanelOpen && !eyesPanelOpen) {
             drawSkinButton(graphics, font, mouseX, mouseY);
@@ -2592,6 +2634,15 @@ public class PoseEditorScreen extends Screen {
     }
 
     private void renderPlayerModel(GuiGraphicsExtractor graphics, float partialTick) {
+        if (!viewportLogged) {
+            viewportLogged = true;
+            var window = Minecraft.getInstance().getWindow();
+            PoseLog.info("preview: framebuffer=%dx%d gui=%dx%d scale=%.2f screen=%dx%d vp=%d,%d..%d,%d cam=%.1f/%.1f zoom=%.2f scale=%.1f",
+                window.getWidth(), window.getHeight(),
+                window.getGuiScaledWidth(), window.getGuiScaledHeight(),
+                window.getGuiScale(), window.getScreenWidth(), window.getScreenHeight(),
+                vpX0, vpY0, vpX1, vpY1, camYaw, camPitch, camZoom, modelPxPerBlock());
+        }
         Minecraft mc = Minecraft.getInstance();
         LivingEntity entity = mc.player;
         if (entity == null) return;
@@ -3499,7 +3550,7 @@ public class PoseEditorScreen extends Screen {
             return true;
         }
         if (inViewport(mouseX, mouseY)) {
-            camZoom = Math.max(0.2, Math.min(6.0, camZoom * (1.0 + scrollY * 0.1)));
+            camZoom = Math.max(0.2, Math.min(4.0, camZoom * (1.0 + scrollY * 0.1)));
             return true;
         }
         // The wheel over the saved-pose list walks the list. Without this, poses past

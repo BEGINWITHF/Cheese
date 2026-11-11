@@ -6,6 +6,8 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.client.renderer.entity.state.EntityRenderState;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
@@ -13,6 +15,7 @@ import org.joml.Quaternionf;
 import org.joml.Quaternionfc;
 import org.joml.Vector3f;
 import org.joml.Vector3fc;
+import org.lwjgl.opengl.GL11;
 
 import java.util.List;
 
@@ -132,14 +135,25 @@ public final class GuiGraphicsExtractor {
                 new Quaternionf(pitchRotation).conjugate().rotateY((float) Math.PI));
         }
         dispatcher.setRenderShadow(false);
-        delegate.drawSpecial(bufferSource ->
-            dispatcher.render(state, 0.0D, 0.0D, 0.0D, delegate.pose(), bufferSource, 15728880));
+        delegate.drawSpecial(bufferSource -> {
+            GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
+            dispatcher.render(state, 0.0D, 0.0D, 0.0D, delegate.pose(), bufferSource, 15728880);
+        });
         delegate.flush();
         dispatcher.setRenderShadow(true);
         pose.popPose();
         Lighting.setupFor3DItems();
     }
 
+    /** Vanilla inventory-style preview; handles transforms, depth and scissor for us. */
+    public void entity(LivingEntity entity, float scale, Vector3fc offset,
+                       Quaternionfc rotation, Quaternionfc pitchRotation,
+                       int x0, int y0, int x1, int y1) {
+        InventoryScreen.renderEntityInInventory(delegate,
+            (x0 + x1) / 2.0F, (y0 + y1) / 2.0F, scale,
+            new Vector3f(offset), new Quaternionf(rotation),
+            new Quaternionf(pitchRotation), entity);
+    }
     // ---- tooltip ---------------------------------------------------------
 
     public void setComponentTooltipForNextFrame(Font font, List<Component> lines, int mouseX, int mouseY) {
@@ -150,3 +164,4 @@ public final class GuiGraphicsExtractor {
         delegate.renderTooltip(font, text, mouseX, mouseY);
     }
 }
+
