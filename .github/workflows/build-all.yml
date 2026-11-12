@@ -48,13 +48,13 @@ jobs:
             java: 21
           - name: 1.20.4
             ref: 1.20.4/stable
-            java: 17
+            java: 21
           - name: 1.20.2
             ref: 1.20.2/stable
-            java: 17
+            java: 21
           - name: 1.20.1
             ref: 1.20.1/stable
-            java: 17
+            java: 21
 
     steps:
       - name: Check out ${{ matrix.ref }}
