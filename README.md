@@ -307,8 +307,10 @@ state dump of all poses. Useful when a pose is not the one you expected:
 ./gradlew build          # -> build/libs/cheese-<version>.jar
 ```
 
-Java 21 is required for the 1.21.x line; 1.20.5+ also uses 21, while 1.20.1-1.20.4 use Java 17. The first build resolves Minecraft, mappings and Fabric Loom from the
-network; later builds work offline (`--offline`).
+Java 21 or newer is required for the Gradle build itself (Fabric Loom needs it). 1.20.5+ and
+1.21.x compile with Java 21; 1.20.1-1.20.4 compile with `release = 17`. The first build
+resolves Minecraft, mappings and Fabric Loom from the network; later builds work offline
+(`--offline`).
 
 ## How it works
 

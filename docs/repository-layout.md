@@ -49,9 +49,9 @@ See `docs/versioning.md` for the full matrix.
 
 ## CI
 
-`.github/workflows/build-all.yml` builds every `<minecraft>/stable` branch in a matrix,
-using Java 21 for 1.20.5+ and 1.21.x, and Java 17 for 1.20.1-1.20.4. Each job uploads
-the built jar as an artifact.
+`.github/workflows/build-all.yml` builds every `<minecraft>/stable` branch in a matrix.
+Every job runs on Java 21 because Fabric Loom requires a 21+ JVM; 1.20.1-1.20.4 still
+compile with `release = 17`. Each job uploads the built jar as an artifact.
 
 Run it from **Actions -> Build version lines -> Run workflow**, or on every push to
 `main`.
