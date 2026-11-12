@@ -3,7 +3,7 @@ plugins {
     id 'maven-publish'
 }
 
-version = project.findProperty('mod_version') ?: '2.2.0'
+version = "${project.mod_version}-${project.findProperty('mc_range') ?: project.minecraft_version}"
 group = project.findProperty('maven_group') ?: 'com.example'
 
 base {
@@ -28,7 +28,7 @@ dependencies {
 }
 
 processResources {
-    def version = project.version
+    def version = project.mod_version
     inputs.property "version", version
     filesMatching("fabric.mod.json") {
         expand "version": version
