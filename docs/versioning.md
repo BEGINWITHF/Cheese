@@ -75,7 +75,7 @@ All of them are attached to the `v2.2.0` release.
 |---|---|---|
 | 26.1, 26.1.1, 26.1.2 | `26.1/stable` | `cheese-2.2.0-26.1.x.jar` |
 | 26.2 | `26.2/stable` | `cheese-2.2.0-26.2.jar` |
-| 26.3 | `main` | `cheese-2.2.0-26.3.jar` |
+| 26.3 | `26.3/stable` | `cheese-2.2.0-26.3.jar` |
 
 All of them are attached to the `v2.2.0` release.
 

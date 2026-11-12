@@ -17,6 +17,7 @@ Current lines:
 
 ```
 main                (1.21.11)
+26.3/stable
 26.2/stable
 26.1/stable
 1.21.11/stable

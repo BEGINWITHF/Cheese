@@ -16,6 +16,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: 26.3
+            ref: 26.3/stable
+            java: 25
           - name: 26.2
             ref: 26.2/stable
             java: 25
