@@ -36,11 +36,11 @@ place for shared docs and CI.
 
 ## Tags and releases
 
-- One GitHub release per compatibility group.
-- Release title uses `~` for a range: `v2.2.0-1.21.9~1.21.11`.
-- Git tags and jar names use `-`: `v2.2.0-1.21.9-1.21.11`,
-  `cheese-2.2.0-1.21.9-1.21.11.jar`, because Git refs and GitHub asset names cannot
-  contain `~`.
+- One GitHub release per mod version, tagged `v<mod version>` (for example `v2.2.0`).
+- Every supported Minecraft jar is attached to that release; adding a target later means
+  uploading another jar to the same release.
+- Jar names use `-` for ranges: `cheese-2.2.0-1.21.9-1.21.11.jar`, because Git refs and
+  GitHub asset names cannot contain `~`.
 - The jar metadata keeps the plain feature version (`2.2.0`) and declares the supported
   Minecraft range in `fabric.mod.json`.
 

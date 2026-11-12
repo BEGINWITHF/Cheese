@@ -30,7 +30,9 @@ One jar covers one compatibility group. Use the jar that matches your Minecraft 
 | 1.20.2 | `1.20.2/stable` | `cheese-2.2.0-beta-1.20.2.jar` |
 | 1.20-1.20.1 | `1.20.1/stable` | `cheese-2.2.0-beta-1.20-1.20.1.jar` |
 
-`main` tracks the latest line (currently 1.21.11). Repository branches and release
+`main` tracks the latest line (currently 1.21.11). Every 2.2.0 build is attached to the
+single `v2.2.0` release — pick the jar that matches your Minecraft version. Additional
+targets are added to the same release as they are tested. Repository branches and release
 rules are documented in `docs/repository-layout.md` and `docs/versioning.md`.
 
 ## Features
