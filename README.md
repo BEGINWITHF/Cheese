@@ -23,7 +23,7 @@ One jar covers one compatibility group. Use the jar that matches your Minecraft 
 | 1.21.9-1.21.11 | `1.21.11/stable` | `cheese-2.2.0-1.21.9-1.21.11.jar` |
 | 1.21.6-1.21.8 | `1.21.8/stable` | `cheese-2.2.0-1.21.6-1.21.8.jar` |
 | 1.21.5 | `1.21.5/stable` | `cheese-2.2.0-1.21.5.jar` |
-| 1.21.4 | `1.21.4/stable` | `cheese-2.2.0-beta-1.21.4.jar` |
+| 1.21.4 | `1.21.4/stable` | `cheese-2.2.0-1.21.4.jar` |
 | 1.21.2-1.21.3 | `1.21.3/stable` | `cheese-2.2.0-beta-1.21.2-1.21.3.jar` |
 | 1.21-1.21.1 | `1.21.1/stable` | `cheese-2.2.0-beta-1.21-1.21.1.jar` |
 | 1.20.5-1.20.6 | `1.20.6/stable` | `cheese-2.2.0-beta-1.20.5-1.20.6.jar` |
