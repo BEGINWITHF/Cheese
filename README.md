@@ -26,10 +26,10 @@ One jar covers one compatibility group. Use the jar that matches your Minecraft 
 | 1.21.4 | `1.21.4/stable` | `cheese-2.2.0-1.21.4.jar` |
 | 1.21.2-1.21.3 | `1.21.3/stable` | `cheese-2.2.0-1.21.2-1.21.3.jar` |
 | 1.21-1.21.1 | `1.21.1/stable` | `cheese-2.2.0-1.21-1.21.1.jar` |
-| 1.20.5-1.20.6 | `1.20.6/stable` | `cheese-2.2.0-beta-1.20.5-1.20.6.jar` |
-| 1.20.3-1.20.4 | `1.20.4/stable` | `cheese-2.2.0-beta-1.20.3-1.20.4.jar` |
-| 1.20.2 | `1.20.2/stable` | `cheese-2.2.0-beta-1.20.2.jar` |
-| 1.20-1.20.1 | `1.20.1/stable` | `cheese-2.2.0-beta-1.20-1.20.1.jar` |
+| 1.20.5-1.20.6 | `1.20.6/stable` | `cheese-2.2.0-1.20.5-1.20.6.jar` |
+| 1.20.3-1.20.4 | `1.20.4/stable` | `cheese-2.2.0-1.20.3-1.20.4.jar` |
+| 1.20.2 | `1.20.2/stable` | `cheese-2.2.0-1.20.2.jar` |
+| 1.20-1.20.1 | `1.20.1/stable` | `cheese-2.2.0-1.20-1.20.1.jar` |
 
 `main` tracks the latest line (currently 1.21.11). Every 2.2.0 build is attached to the
 single `v2.2.0` release — pick the jar that matches your Minecraft version. Additional
