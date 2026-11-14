@@ -31,6 +31,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(PlayerModel.class)
 public abstract class PoseCapeMixin {
 
+    @org.spongepowered.asm.mixin.Unique
+    private static boolean playerpose$capeApplied;
+
     @Final @Shadow private ModelPart cloak;
 
     @Inject(
@@ -46,6 +49,7 @@ public abstract class PoseCapeMixin {
         if (entity.getId() != mc.player.getId()) return;
 
         Pose pose = PlayerPoseClient.resolvePoseForLocalPlayer(mc);
+        boolean capeInPose = false;
         if (pose != null && pose.getBones() != null) {
             for (PoseBone bone : pose.getBones()) {
                 if (bone == null || !"cape".equals(bone.bone)) continue;
@@ -72,7 +76,19 @@ public abstract class PoseCapeMixin {
                     float baseZ = rest == null ? 0.0F : rest.z;
                     cloak.setPos((float) (baseX + dx), (float) (baseY + dy), (float) (baseZ + dz));
                 }
+                playerpose$capeApplied = true;
+                capeInPose = true;
             }
+        }
+        if (!capeInPose) {
+            // No cape pose: keep the cloak at its baked pose so Reset all clears any
+            // rotation/translation that a previous frame wrote.
+            var rest = cloak.getInitialPose();
+            if (rest != null) {
+                cloak.setRotation(rest.xRot, rest.yRot, rest.zRot);
+                cloak.setPos(rest.x, rest.y, rest.z);
+            }
+            playerpose$capeApplied = false;
         }
 
         // Published after the pose is on, so the editor gets the cape's real position

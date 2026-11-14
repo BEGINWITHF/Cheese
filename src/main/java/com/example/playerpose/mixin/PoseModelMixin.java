@@ -158,6 +158,14 @@ public abstract class PoseModelMixin implements PoseModelAccess {
 
         if (playerModel) {
             deformLimbs(pose);
+            // The sleeve/pants overlays are root parts. Vanilla setupAnim copied the
+            // rest limb transforms before this pose ran, so refresh them now.
+            if ((Object) this instanceof PlayerModel pm) {
+                pm.leftSleeve.copyFrom(leftArm);
+                pm.rightSleeve.copyFrom(rightArm);
+                pm.leftPants.copyFrom(leftLeg);
+                pm.rightPants.copyFrom(rightLeg);
+            }
             // Pivots feed the editor's gizmo. Remote players render with the same
             // shared model classes, and the armor model is a PlayerModel too, so only
             // the split skin model of the local player may publish them.
