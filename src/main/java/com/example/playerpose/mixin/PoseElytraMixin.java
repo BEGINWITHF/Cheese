@@ -96,6 +96,13 @@ public abstract class PoseElytraMixin {
         if (elytraBone != null && !elytraBone.isRest()) {
             elytra.setPos((float) elytraBone.tx, (float) elytraBone.ty, (float) elytraBone.tz);
             elytra.setRotation((float) elytraBone.x, (float) elytraBone.y, (float) elytraBone.z);
+        } else if (elytra != null) {
+            // Reset all clears the cape bone; put the elytra back to its baked pose.
+            var rest = elytra.getInitialPose();
+            if (rest != null) {
+                elytra.setPos(rest.x, rest.y, rest.z);
+                elytra.setRotation(rest.xRot, rest.yRot, rest.zRot);
+            }
         }
 
         // Opening angles: sweep both wings outward around each axis. The three values live
