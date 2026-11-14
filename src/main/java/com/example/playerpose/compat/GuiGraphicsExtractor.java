@@ -12,6 +12,7 @@ import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.entity.LivingEntity;
 import org.joml.Quaternionf;
 import org.joml.Quaternionfc;
+import org.joml.Vector3f;
 import org.joml.Vector3fc;
 
 import java.util.List;
@@ -127,6 +128,10 @@ public final class GuiGraphicsExtractor {
             delegate.flush();
 
             Lighting.setupForEntityInInventory();
+            // Cover the view hemisphere with two lights so no visible face falls
+            // behind both of them: one from above, one from the viewer.
+            com.mojang.blaze3d.systems.RenderSystem.setShaderLights(
+                new Vector3f(0.0F, 1.0F, 0.0F), new Vector3f(0.0F, 0.0F, 1.0F));
             EntityRenderDispatcher dispatcher = Minecraft.getInstance().getEntityRenderDispatcher();
             if (pitchRotation != null) {
                 dispatcher.overrideCameraOrientation(

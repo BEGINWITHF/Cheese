@@ -94,6 +94,10 @@ public abstract class PoseLimbSplitMixin {
             PartPose.offset(pivotX, pivotY, 0.0F));
         // Keep the vanilla overlay name so PlayerModel still toggles its visibility;
         // the sleeve/pants slices are children of it.
+        // Keep an empty root placeholder for PlayerModel's name lookups, but put the
+        // visible slices under the limb so they inherit the posed transform.
+        root.addOrReplaceChild(overlayName, CubeListBuilder.create(),
+            PartPose.offset(pivotX, pivotY, 0.0F));
         PartDefinition overlay = limb.addOrReplaceChild(overlayName, CubeListBuilder.create(),
             PartPose.ZERO);
 

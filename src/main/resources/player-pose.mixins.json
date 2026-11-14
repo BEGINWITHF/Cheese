@@ -8,12 +8,13 @@
     "ModelPartChildrenAccessor",
     "PartDefinitionAccessor",
     "PoseArmorSplitMixin",
+    "PoseLimbSplitMixin",
     "PoseModelMixin",
     "PoseSkinOverrideMixin",
     "PoseLivingRendererMixin",
-    "PoseLimbSplitMixin",
     "PoseCapeMixin",
-    "PoseElytraMixin"
+    "PoseElytraMixin",
+    "PoseHandMixin"
   ],
   "injectors": {
     "default": {

@@ -150,8 +150,21 @@ public final class PlayerPoseGeometry {
                     double[] hn = hipBend.bendNormal(faceY, n[0], n[1], n[2]);
                     n = hipBend.counterRotation(hn[0], hn[1], hn[2]);
                 }
+                // Keep lighting stable at extreme bends: degenerate normals shade black.
+                double nx = n[0], ny = n[1], nz = n[2];
+                double len2 = nx * nx + ny * ny + nz * nz;
+                if (len2 < 1.0E-6) {
+                    nx = normal.x();
+                    ny = normal.y();
+                    nz = normal.z();
+                } else {
+                    double inv = 1.0 / Math.sqrt(len2);
+                    nx *= inv;
+                    ny *= inv;
+                    nz *= inv;
+                }
                 polygons(cube)[p] = polygon(out,
-                    (float) n[0], (float) n[1], (float) n[2]);
+                    (float) nx, (float) ny, (float) nz);
             }
         }
     }
@@ -245,9 +258,21 @@ public final class PlayerPoseGeometry {
      */
     private static ModelPart.Polygon polygon(ModelPart.Vertex[] vertices,
                                              Vector3f normal) {
+        // The constructor remaps every vertex UV against the rectangle, so passing
+        // zeros wipes the skin coordinates. Keep the incoming UVs and restore them
+        // after construction.
+        float[] us = new float[vertices.length];
+        float[] vs = new float[vertices.length];
+        for (int i = 0; i < vertices.length; i++) {
+            us[i] = vertices[i].u;
+            vs[i] = vertices[i].v;
+        }
         Direction direction = Direction.getNearest(normal.x(), normal.y(), normal.z());
         ModelPart.Polygon result = new ModelPart.Polygon(vertices,
             0.0F, 0.0F, 0.0F, 0.0F, 1.0F, 1.0F, false, direction);
+        for (int i = 0; i < vertices.length; i++) {
+            result.vertices[i] = new ModelPart.Vertex(vertices[i].pos, us[i], vs[i]);
+        }
         result.normal.set(normal);
         return result;
     }
