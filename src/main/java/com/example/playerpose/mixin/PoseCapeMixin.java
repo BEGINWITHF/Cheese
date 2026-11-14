@@ -5,6 +5,7 @@ import com.example.playerpose.pose.BoneMath;
 import com.example.playerpose.pose.Pose;
 import com.example.playerpose.pose.PoseBone;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.model.PlayerModel;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.world.entity.LivingEntity;
@@ -27,7 +28,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public abstract class PoseCapeMixin {
 
     @Shadow private ModelPart cloak;
-    @Shadow public ModelPart body;
 
     @Inject(
         method = "setupAnim(Lnet/minecraft/world/entity/LivingEntity;FFFFF)V",
@@ -74,6 +74,9 @@ public abstract class PoseCapeMixin {
         // Published after the pose is on, so the editor gets the cape's real position
         // (including its translate). The cape hangs off the body, so compose its local
         // pivot with the body's posed position and rotation to get model space.
+        // The body part lives on HumanoidModel; a @Shadow here would target the
+        // inherited field and fail to resolve, so read it through the superclass.
+        ModelPart body = ((HumanoidModel<?>) (Object) this).body;
         double[] off = BoneMath.rotateZYX(cloak.x, cloak.y, cloak.z,
             body.xRot, body.yRot, body.zRot);
         PlayerPoseClient.publishJointPivot("cape",

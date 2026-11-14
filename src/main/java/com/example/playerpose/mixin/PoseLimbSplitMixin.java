@@ -92,10 +92,11 @@ public abstract class PoseLimbSplitMixin {
         // Replace the vanilla limb cube with an empty pivot; the slices carry the skin.
         PartDefinition limb = root.addOrReplaceChild(limbName, CubeListBuilder.create(),
             PartPose.offset(pivotX, pivotY, 0.0F));
-        // Keep the vanilla overlay name so PlayerModel still toggles its visibility;
-        // the sleeve/pants slices are children of it.
-        PartDefinition overlay = limb.addOrReplaceChild(overlayName, CubeListBuilder.create(),
-            PartPose.ZERO);
+        // The sleeve/pants part is a root part and PlayerModel looks it up by name.
+        // Rebuild it in place (instead of under the arm) so it is the only copy and
+        // keeps rendering in first person and in the model's part list.
+        PartDefinition overlay = root.addOrReplaceChild(overlayName, CubeListBuilder.create(),
+            PartPose.offset(pivotX, pivotY, 0.0F));
 
         // Empty marker at the elbow/knee centre: pose data and the gizmo aim at this.
         float centerX = boxX + width / 2.0F;
@@ -198,7 +199,7 @@ public abstract class PoseLimbSplitMixin {
                                 float textureHeight) {
         if (root == null || !root.hasChild(limbName)) return;
         ModelPart limb = root.getChild(limbName);
-        ModelPart overlay = child(limb, overlayName);
+        ModelPart overlay = child(root, overlayName);
         float endShift = -(slices - 1) / textureHeight;
 
         addPlacementCube(limb, limbName, firstBase, slices);
