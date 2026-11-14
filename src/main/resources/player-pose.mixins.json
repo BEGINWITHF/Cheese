@@ -13,7 +13,8 @@
     "PoseLivingRendererMixin",
     "PoseLimbSplitMixin",
     "PoseCapeMixin",
-    "PoseElytraMixin"
+    "PoseElytraMixin",
+    "PoseHandMixin"
   ],
   "injectors": {
     "default": {

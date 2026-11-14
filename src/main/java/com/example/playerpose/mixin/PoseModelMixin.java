@@ -169,22 +169,21 @@ public abstract class PoseModelMixin implements PoseModelAccess {
 
     private void deformLimbs(Pose pose) {
         deformLimb(pose, "leftForearm", null, leftArm, "left_arm_slice", "left_sleeve_slice",
-            "left_forearm", "left_sleeve", PoseLimbs.SLICES);
+            "left_forearm", child(leftArm, "left_sleeve"), PoseLimbs.SLICES);
         deformLimb(pose, "rightForearm", null, rightArm, "right_arm_slice", "right_sleeve_slice",
-            "right_forearm", "right_sleeve", PoseLimbs.SLICES);
+            "right_forearm", child(rightArm, "right_sleeve"), PoseLimbs.SLICES);
         deformLimb(pose, "leftShin", "leftLeg", leftLeg, "left_leg_slice", "left_pants_slice",
-            "left_shin", "left_pants", PoseLimbs.SLICES);
+            "left_shin", child(leftLeg, "left_pants"), PoseLimbs.SLICES);
         deformLimb(pose, "rightShin", "rightLeg", rightLeg, "right_leg_slice", "right_pants_slice",
-            "right_shin", "right_pants", PoseLimbs.SLICES);
+            "right_shin", child(rightLeg, "right_pants"), PoseLimbs.SLICES);
     }
 
     private static void deformLimb(Pose pose, String boneName, String hipBoneName, ModelPart limb,
                                    String firstBase, String secondBase,
-                                   String jointName, String overlayName, int slices) {
+                                   String jointName, ModelPart overlay, int slices) {
         if (limb == null) return;
         PoseBone bone = findBone(pose, boneName);
         PoseBone hipBone = hipBoneName == null ? null : findBone(pose, hipBoneName);
-        ModelPart overlay = child(limb, overlayName);
 
         boolean sliced = child(limb, firstBase + "0") != null;
         if (!sliced) {
