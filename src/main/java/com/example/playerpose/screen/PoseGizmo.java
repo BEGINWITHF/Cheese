@@ -26,12 +26,6 @@ final class PoseGizmo {
     private static final int SAMPLES = 72;
     private static final double HIT_PX = 9.0;
 
-    /**
-     * Vertical centre of the player model in model units. The model spans roughly
-     * y = -8 (top of the head cube) to y = 24 (feet), so its centre is y = 8, and
-     * the GUI entity renderer centres that on the viewport rectangle.
-     */
-    private static final double MODEL_CENTER_UNITS = 8.0;
 
     // Blender's axis colours (X red, Y green, Z blue)
     private static final int[] BRIGHT = {0xFFFF5555, 0xFF6FD44F, 0xFF4F86FF};
@@ -97,13 +91,20 @@ final class PoseGizmo {
     static double[] projectPivot(double rectCenterX, double rectCenterY, double pxPerBlock,
                                  double viewYaw, double pitch,
                                  float pivotX, float pivotY, float pivotZ) {
-        double per = pxPerBlock / 16.0;
+        // Mirror the entity transform: the renderer scales the model by 0.9375,
+        // rotates it, and only then lifts it by half the hitbox height. Lifting
+        // after the rotation keeps the joint anchored while the camera pitch
+        // changes; applying the lift before the rotation drifts with pitch.
+        double per = pxPerBlock * 0.9375 / 16.0;
         double[] r = rotateChain(
             pivotX * per,
-            (pivotY - MODEL_CENTER_UNITS) * per,
+            (24.0 - pivotY) * per,
             pivotZ * per,
             viewYaw, pitch);
-        return new double[] {rectCenterX + r[0], rectCenterY - r[1]};
+        return new double[] {
+            rectCenterX + r[0],
+            rectCenterY + r[1] + 0.9 * pxPerBlock
+        };
     }
 
     private double[] ringPoint(int axis, double t) {

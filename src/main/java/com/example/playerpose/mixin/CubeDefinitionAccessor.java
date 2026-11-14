@@ -3,7 +3,7 @@ package com.example.playerpose.mixin;
 import net.minecraft.client.model.geom.builders.CubeDefinition;
 import net.minecraft.client.model.geom.builders.CubeDeformation;
 import net.minecraft.client.model.geom.builders.UVPair;
-import org.joml.Vector3fc;
+import org.joml.Vector3f;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Accessor;
 
@@ -12,10 +12,10 @@ import org.spongepowered.asm.mixin.gen.Accessor;
 public interface CubeDefinitionAccessor {
 
     @Accessor("origin")
-    Vector3fc playerpose$origin();
+    Vector3f playerpose$origin();
 
     @Accessor("dimensions")
-    Vector3fc playerpose$dimensions();
+    Vector3f playerpose$dimensions();
 
     @Accessor("grow")
     CubeDeformation playerpose$grow();
