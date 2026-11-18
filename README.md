@@ -11,6 +11,8 @@ pose, and assign it to yourself or to other players on your client.
 Everything is visual and local: poses are never sent to the server, do not move hitboxes,
 and other players see their own game normally.
 
+New to the editor? See the [illustrated guide](docs/tutorial.md).
+
 ## Supported versions
 
 One jar covers one compatibility group. Use the jar that matches your Minecraft version.
